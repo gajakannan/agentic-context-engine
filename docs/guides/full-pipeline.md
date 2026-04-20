@@ -215,7 +215,7 @@ custom steps:
 from ace import Pipeline, AgentStep, EvaluateStep, learning_tail
 
 pipe = Pipeline([
-    AgentStep(agent),
+    AgentStep(agent, skillbook),
     EvaluateStep(environment),
     *learning_tail(reflector, skill_manager, skillbook),
 ])

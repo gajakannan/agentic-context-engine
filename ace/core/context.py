@@ -119,6 +119,9 @@ class ACEStepContext(StepContext):
     agent_output: AgentOutput | None = None
     reflections: tuple[ReflectorOutput, ...] = ()
     skill_manager_output: UpdateBatch | None = None
+    # Skills rendered into the Agent's prompt this run. Downstream roles
+    # (Reflector/RR, SkillManager) use this as attribution scope.
+    injected_skill_ids: tuple[str, ...] = ()
 
     # -- Progress tracking --
     epoch: int = 1

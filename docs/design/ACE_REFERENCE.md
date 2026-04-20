@@ -168,19 +168,25 @@ class DeduplicationManagerLike(Protocol):
 ```python
 class AgentStep:
     requires = frozenset({"sample", "skillbook"})
-    provides = frozenset({"agent_output"})
+    provides = frozenset({"agent_output", "injected_skill_ids"})
 
-    def __init__(self, agent: AgentLike) -> None:
+    def __init__(self, agent: AgentLike, skillbook: Skillbook) -> None:
         self.agent = agent
+        self.skillbook = skillbook
 
     def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
+        injected_ids = tuple(s.id for s in self.skillbook.skills())
         agent_output = self.agent.generate(
             question=ctx.sample.question,
             context=ctx.sample.context,
             skillbook=ctx.skillbook,       # SkillbookView (read-only)
             sample=ctx.sample,
         )
-        return ctx.replace(agent_output=agent_output)
+        self.skillbook.mark_used(injected_ids)
+        return ctx.replace(
+            agent_output=agent_output,
+            injected_skill_ids=injected_ids,
+        )
 ```
 
 ### EvaluateStep
@@ -467,7 +473,7 @@ def from_roles(cls, *, agent, reflector, skill_manager, environment=None,
                extra_steps=None):
     skillbook = skillbook or Skillbook()
     steps = [
-        AgentStep(agent),
+        AgentStep(agent, skillbook),
         EvaluateStep(environment),
         *learning_tail(
             reflector, skill_manager, skillbook,

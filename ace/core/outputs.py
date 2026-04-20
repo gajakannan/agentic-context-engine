@@ -49,17 +49,12 @@ class ExtractedLearning(BaseModel):
     )
 
 
-class SkillTag(BaseModel):
-    """Classification tag for a skill strategy (helpful/harmful/neutral)."""
-
-    id: str = Field(..., description="The skill ID being tagged")
-    tag: str = Field(
-        ..., description="Classification: 'helpful', 'harmful', or 'neutral'"
-    )
-
-
 class ReflectorOutput(BaseModel):
-    """Output from the Reflector role containing analysis and skill classifications."""
+    """Output from the Reflector role containing pure analysis.
+
+    Reflector reports what it found; downstream (SkillManager) decides how
+    to act. No tagging fields, no prescriptive output.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -75,9 +70,6 @@ class ReflectorOutput(BaseModel):
     )
     key_insight: str = Field(
         ..., description="The main lesson learned from this iteration"
-    )
-    skill_tags: List[SkillTag] = Field(
-        default_factory=list, description="Classifications of strategy effectiveness"
     )
     raw: Dict[str, Any] = Field(
         default_factory=dict, description="Raw LLM response data"

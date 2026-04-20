@@ -24,7 +24,6 @@ from .skillbook import (
 
 __all__ = [
     # Skillbook types
-    "VALID_SKILL_TAGS",
     "OperationType",
     "Skill",
     "Skillbook",

@@ -26,14 +26,6 @@ from .insight_source import (
 )
 
 # ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-VALID_SKILL_TAGS: FrozenSet[str] = frozenset(
-    {"helpful", "harmful", "neutral"}
-)  # used by Reflector skill_tags
-
-# ---------------------------------------------------------------------------
 # Update operations
 # ---------------------------------------------------------------------------
 
@@ -241,12 +233,20 @@ class Skill:
     embedding: Optional[List[float]] = None
     status: Literal["active", "invalid"] = "active"
     sources: List[InsightSource] = field(default_factory=list)
+    used_count: int = 0
+    helpful_count: int = 0
+    harmful_count: int = 0
+    neutral_count: int = 0
 
     def to_llm_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "section": self.section,
             "content": self.content,
+            "used_count": self.used_count,
+            "helpful_count": self.helpful_count,
+            "harmful_count": self.harmful_count,
+            "neutral_count": self.neutral_count,
         }
 
 
@@ -329,6 +329,34 @@ class Skillbook:
                 )
             skill.updated_at = datetime.now(timezone.utc).isoformat()
             return skill
+
+    def tag_skill(self, skill_id: str, delta: Literal[1, -1, 0]) -> Optional[Skill]:
+        """Record an effectiveness observation for a skill.
+
+        ``+1`` → helpful, ``-1`` → harmful, ``0`` → neutral. Bumps the
+        corresponding counter on the skill. Returns the updated skill,
+        or ``None`` if the skill does not exist.
+        """
+        with self._lock:
+            skill = self._skills.get(skill_id)
+            if skill is None:
+                return None
+            if delta == 1:
+                skill.helpful_count += 1
+            elif delta == -1:
+                skill.harmful_count += 1
+            else:
+                skill.neutral_count += 1
+            skill.updated_at = datetime.now(timezone.utc).isoformat()
+            return skill
+
+    def mark_used(self, skill_ids: Iterable[str]) -> None:
+        """Bump ``used_count`` for each active skill ID."""
+        with self._lock:
+            for sid in skill_ids:
+                skill = self._skills.get(sid)
+                if skill is not None:
+                    skill.used_count += 1
 
     def remove_skill(self, skill_id: str, soft: bool = False) -> None:
         with self._lock:
@@ -522,7 +550,14 @@ class Skillbook:
                 insight_source=operation.insight_source,
             )
         elif op_type == "TAG":
-            pass  # Tagging is the Reflector's responsibility, not the SkillManager's
+            if operation.skill_id is None:
+                return
+            delta = int(operation.metadata.get("delta", 0))
+            if delta > 0:
+                delta = 1
+            elif delta < 0:
+                delta = -1
+            self.tag_skill(operation.skill_id, cast(Literal[1, -1, 0], delta))
         elif op_type == "REMOVE":
             if operation.skill_id is None:
                 return

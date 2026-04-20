@@ -98,13 +98,14 @@ Key fields:
 
 | Field | Type | Source |
 |---|---|---|
-| `mode` | `Literal["online", "offline"]` | `"online"` (default) — controls skill evaluation in Reflector |
+| `mode` | `Literal["online", "offline"]` | `"online"` (default) — reserved for downstream steps |
 | `sample` | `ACESample \| None` | Set by runner's `_build_context()` |
 | `skillbook` | `SkillbookView \| None` | Read-only projection of the real Skillbook |
 | `trace` | `object \| None` | Raw execution record — any type, no enforced schema |
 | `agent_output` | `AgentOutput \| None` | Produced by `AgentStep` |
 | `reflections` | `tuple[ReflectorOutput, ...]` | Produced by `ReflectStep` / `RRStep` |
-| `skill_manager_output` | `UpdateBatch \| None` | Produced by `UpdateStep` |
+| `skill_manager_output` | `UpdateBatch \| None` | Produced by `UpdateStep` (audit log of mutations the SM already applied) |
+| `injected_skill_ids` | `tuple[str, ...]` | Produced by `AgentStep` — skill IDs rendered into the agent prompt; downstream attribution scope |
 | `epoch`, `total_epochs` | `int` | Runner bookkeeping |
 | `step_index`, `total_steps` | `int` | Runner bookkeeping |
 | `global_sample_index` | `int` | Runner bookkeeping (used by interval steps) |

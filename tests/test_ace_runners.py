@@ -14,7 +14,6 @@ from ace.core.outputs import (
     AgentOutput,
     ReflectorOutput,
     SkillManagerOutput,
-    SkillTag,
 )
 from ace.core.skillbook import Skillbook, UpdateBatch, UpdateOperation
 from ace.runners.base import ACERunner
@@ -56,7 +55,6 @@ class MockReflector:
             reasoning="mock reflection",
             correct_approach="mock approach",
             key_insight="mock insight",
-            skill_tags=[],
         )
 
 

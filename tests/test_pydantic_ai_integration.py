@@ -24,7 +24,6 @@ from ace.core.outputs import (
     AgentOutput,
     ReflectorOutput,
     SkillManagerOutput,
-    SkillTag,
 )
 from ace.core.skillbook import Skillbook, UpdateBatch
 from ace.implementations import Agent, Reflector, SkillManager
@@ -137,7 +136,6 @@ class TestReflectorRole:
         assert len(output.key_insight) > 0
         assert "usage" in output.raw
         print(f"\n  Key insight: {output.key_insight}")
-        print(f"  Skill tags: {[(t.id, t.tag) for t in output.skill_tags]}")
 
     def test_wrong_answer_reflection(self):
         reflector = Reflector(MODEL)
@@ -208,7 +206,6 @@ class TestSkillManagerRole:
             reasoning="The agent correctly applied decomposition strategy",
             correct_approach="Decomposition worked well",
             key_insight="Decomposition strategy is effective",
-            skill_tags=[SkillTag(id="math-001", tag="helpful")],
         )
 
         output = sm.update_skills(
@@ -400,16 +397,13 @@ class TestRRStepIntegration:
         assert len(output.reasoning) > 0
         assert len(output.key_insight) > 0
 
-        # The reflector should reference the skill in some way — either via
-        # skill_tags or by mentioning the skill in its reasoning/key_insight.
-        # The RR should produce a meaningful analysis — it may or may not
-        # reference the specific skill ID depending on the model.
+        # The RR should produce a meaningful analysis referencing the
+        # capital city error.
         full_text = f"{output.reasoning} {output.key_insight}"
         has_analysis = (
             "capital" in full_text.lower()
             or "largest" in full_text.lower()
             or "brasilia" in full_text.lower()
-            or len(output.skill_tags) > 0
         )
         assert has_analysis, (
             "Expected the reflector to analyze the capital city error. "
@@ -417,8 +411,6 @@ class TestRRStepIntegration:
         )
 
         print(f"\n  Key insight: {output.key_insight[:200]}")
-        print(f"  Skill tags: {[(t.id, t.tag) for t in output.skill_tags]}")
-        print(f"  Key insight: {output.key_insight[:200]}")
 
     @pytest.mark.integration
     def test_rr_step_protocol(self):

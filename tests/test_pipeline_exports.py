@@ -33,7 +33,6 @@ class MockReflector:
             reasoning="r",
             correct_approach="a",
             key_insight="i",
-            skill_tags=[],
         )
 
 

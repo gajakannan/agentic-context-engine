@@ -99,18 +99,15 @@ class SkillManager:
         """
         reflections_data = []
         for r in reflections:
-            entry: dict[str, Any] = {
-                "reasoning": r.reasoning,
-                "error_identification": r.error_identification,
-                "root_cause_analysis": r.root_cause_analysis,
-                "correct_approach": r.correct_approach,
-                "key_insight": r.key_insight,
-            }
-            if r.skill_tags:
-                entry["skill_tags"] = [
-                    {"id": t.id, "tag": t.tag} for t in r.skill_tags
-                ]
-            reflections_data.append(entry)
+            reflections_data.append(
+                {
+                    "reasoning": r.reasoning,
+                    "error_identification": r.error_identification,
+                    "root_cause_analysis": r.root_cause_analysis,
+                    "correct_approach": r.correct_approach,
+                    "key_insight": r.key_insight,
+                }
+            )
 
         prompt = self._prompt_template.format(
             progress=progress,

@@ -34,7 +34,6 @@ class MockReflector:
             reasoning="test reasoning",
             correct_approach="test approach",
             key_insight="test insight",
-            skill_tags=[],
         )
         self.calls: list[dict] = []
 

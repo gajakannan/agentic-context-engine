@@ -176,7 +176,7 @@ Use `learning_tail()` for the standard learning sequence, or compose custom pipe
 ```python
 from ace import Pipeline, AgentStep, EvaluateStep, learning_tail
 
-steps = [AgentStep(agent), EvaluateStep(env)] + learning_tail(reflector, skill_manager, skillbook)
+steps = [AgentStep(agent, skillbook), EvaluateStep(env)] + learning_tail(reflector, skill_manager, skillbook)
 pipeline = Pipeline(steps)
 ```
 

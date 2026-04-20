@@ -51,7 +51,7 @@ from ace import (
 skillbook = Skillbook()
 
 pipe = Pipeline([
-    AgentStep(Agent("gpt-4o-mini")),
+    AgentStep(Agent("gpt-4o-mini"), skillbook),
     EvaluateStep(SimpleEnvironment()),
     *learning_tail(Reflector("gpt-4o-mini"), SkillManager("gpt-4o-mini"), skillbook),
 ])
@@ -192,7 +192,7 @@ concurrently:
 from ace import Pipeline, Branch, MergeStrategy
 
 pipe = Pipeline([
-    AgentStep(agent),
+    AgentStep(agent, skillbook),
     Branch(
         [EvaluateStep(env_a), EvaluateStep(env_b)],
         merge=MergeStrategy.LAST,

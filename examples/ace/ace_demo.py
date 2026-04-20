@@ -286,7 +286,7 @@ env = SimpleEnvironment()
 # Build the full pipeline manually
 pipe = Pipeline(
     [
-        AgentStep(Agent(MODEL)),
+        AgentStep(Agent(MODEL), skillbook5),
         EvaluateStep(env),
         *learning_tail(Reflector(MODEL), SkillManager(MODEL), skillbook5),
     ]
