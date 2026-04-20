@@ -47,6 +47,8 @@ def _rr_span(name: str, **attrs: Any):
     if _logfire is not None:
         return _logfire.span(name, **attrs)
     return nullcontext()
+
+
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelRequest,
@@ -55,13 +57,17 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models import Model as PydanticModel
 from pydantic_ai.settings import ModelSettings
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.usage import RequestUsage, UsageLimits
 
 from pydantic_ai import ModelRetry, RunContext
 
+from .metered_model import MeteredModel
 from .sandbox import TraceSandbox
 from ..providers.pydantic_ai import resolve_model
+
+UsageCallback = Callable[[RequestUsage, str], None]
 
 logger = logging.getLogger(__name__)
 
@@ -121,8 +127,7 @@ def register_execute_code(agent: PydanticAgent) -> None:
         if len(output) > max_output:
             remaining = len(output) - max_output
             output = (
-                f"{output[:max_output]}\n"
-                f"[TRUNCATED: {remaining} chars remaining]"
+                f"{output[:max_output]}\n" f"[TRUNCATED: {remaining} chars remaining]"
             )
 
         return output
@@ -204,7 +209,10 @@ def register_recurse(agent: PydanticAgent) -> None:
         # Build child deps (same type as parent)
         child_deps = deps.__class__(
             **{
-                **{f.name: getattr(deps, f.name) for f in deps.__dataclass_fields__.values()},
+                **{
+                    f.name: getattr(deps, f.name)
+                    for f in deps.__dataclass_fields__.values()
+                },
                 "sandbox": child_sandbox,
                 "depth": deps.depth + 1,
                 "iteration": 0,
@@ -228,6 +236,7 @@ def register_recurse(agent: PydanticAgent) -> None:
 
         except Exception as e:
             return f"(child session failed: {e})"
+
 
 # ------------------------------------------------------------------
 # Configuration
@@ -264,6 +273,11 @@ class AgenticConfig:
     # Sandbox execution
     timeout: float = 60.0
     max_output_chars: int = 50_000
+    # Metering — fired once per completed pydantic-ai model request
+    # (orchestrator turn, child session, compaction summary). Exceptions
+    # inside the callback are swallowed by MeteredModel so a broken
+    # meter never crashes a run.
+    usage_callback: UsageCallback | None = None
 
     def build_usage_limits(self, remaining_tokens: int | None = None) -> UsageLimits:
         """Build PydanticAI UsageLimits from this config."""
@@ -380,7 +394,9 @@ async def summarize_and_compact(
 
     return [
         ModelResponse(
-            parts=[TextPart(content=f"[Compaction summary #{compaction_count}]\n{summary}")]
+            parts=[
+                TextPart(content=f"[Compaction summary #{compaction_count}]\n{summary}")
+            ]
         ),
         ModelRequest(parts=[UserPromptPart(content=continuation_message)]),
     ]
@@ -428,9 +444,7 @@ async def run_agent_with_compaction(
                 ) as agent_run:
                     last_run = agent_run
                     async for _node in agent_run:
-                        deps.parent_usage_tokens = (
-                            agent_run.usage().total_tokens or 0
-                        )
+                        deps.parent_usage_tokens = agent_run.usage().total_tokens or 0
 
                     output = agent_run.result.output
                     usage = agent_run.result.usage()
@@ -543,7 +557,7 @@ class RecursiveAgent:
 
     def __init__(
         self,
-        model: str,
+        model: str | PydanticModel,
         *,
         output_type: Type,
         system_prompt: str,
@@ -573,7 +587,13 @@ class RecursiveAgent:
 
     def _create_agent(self, depth: int = 0) -> PydanticAgent:
         """Create a PydanticAI agent for the given recursion depth."""
-        resolved = resolve_model(self._model)
+        if isinstance(self._model, PydanticModel):
+            resolved = self._model
+        else:
+            resolved = resolve_model(self._model)
+
+        if self.config.usage_callback is not None:
+            resolved = MeteredModel(resolved, self.config.usage_callback)
 
         agent = PydanticAgent(
             resolved,
@@ -650,7 +670,9 @@ class RecursiveAgent:
             self._agent,
             deps=deps,
             prompt=prompt,
-            usage_limits=self.config.build_usage_limits(remaining_tokens=remaining_tokens),
+            usage_limits=self.config.build_usage_limits(
+                remaining_tokens=remaining_tokens
+            ),
             config=self.config,
             tool_names_to_compact=self._tool_names_to_compact,
             compaction_summary_prompt=self._compaction_summary_prompt,
@@ -695,8 +717,10 @@ class RecursiveAgent:
         sandbox = getattr(deps, "sandbox", None)
         if sandbox is not None:
             history = sandbox.namespace.get("history", [])
-            history.append({
-                "compaction_round": compaction_count,
-                "message_count": len(messages),
-            })
+            history.append(
+                {
+                    "compaction_round": compaction_count,
+                    "message_count": len(messages),
+                }
+            )
             sandbox.namespace["history"] = history

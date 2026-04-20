@@ -57,7 +57,12 @@ def _mock_compaction_result(
         raw={},
     )
     metadata = {
-        "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150, "requests": 3},
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "requests": 3,
+        },
         "compactions": 0,
         "depth": 0,
         "iterations": 2,
@@ -185,3 +190,88 @@ class TestRRStepProtocol:
         assert isinstance(result, ReflectorOutput)
         assert result.key_insight == "reflected"
 
+
+@pytest.mark.unit
+class TestMeteredModel:
+    """``MeteredModel`` fires the usage callback from the pydantic-ai model layer."""
+
+    def test_callback_invoked_with_request_usage_and_model_name(self):
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai.usage import RequestUsage
+
+        from ace.core.metered_model import MeteredModel
+
+        calls: list[tuple[RequestUsage, str]] = []
+
+        def _cb(usage, model_id):
+            calls.append((usage, model_id))
+
+        inner = TestModel()
+        agent = Agent(MeteredModel(inner, _cb), output_type=str)
+        result = agent.run_sync("hello")
+
+        assert result.output
+        assert len(calls) >= 1
+        reported_usage, model_id = calls[-1]
+        assert isinstance(reported_usage, RequestUsage)
+        assert reported_usage.input_tokens > 0
+        assert model_id == inner.model_name
+
+    def test_callback_exception_does_not_break_agent_run(self):
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+
+        from ace.core.metered_model import MeteredModel
+
+        def _cb(usage, model_id):
+            raise RuntimeError("boom")
+
+        agent = Agent(MeteredModel(TestModel(), _cb), output_type=str)
+        result = agent.run_sync("hello")
+
+        assert result.output
+
+    def test_rrstep_accepts_prebuilt_model_instance(self):
+        """Passing a pre-built ``Model`` flows through ``RRStep`` unchanged."""
+        from pydantic_ai.models.test import TestModel
+
+        test_model = TestModel()
+        rr = RRStep(test_model, config=RRConfig())
+
+        assert rr._model is test_model
+        assert rr._agent.model is test_model
+
+    def test_rrstep_wraps_model_when_usage_callback_set(self):
+        """``RRStep.__init__`` routes the agent model through ``MeteredModel``."""
+        from ace.core.metered_model import MeteredModel
+
+        rr = RRStep(
+            "test-model",
+            config=RRConfig(usage_callback=lambda u, n: None),
+        )
+
+        assert isinstance(rr._agent.model, MeteredModel)
+
+    def test_rrstep_does_not_wrap_when_no_callback(self):
+        """Without a callback there's no wrapper overhead."""
+        from ace.core.metered_model import MeteredModel
+
+        rr = RRStep("test-model", config=RRConfig())
+
+        assert not isinstance(rr._agent.model, MeteredModel)
+
+    def test_prebuilt_model_and_callback_compose(self):
+        """Pre-built Model + usage_callback both apply — meter wraps the instance."""
+        from pydantic_ai.models.test import TestModel
+
+        from ace.core.metered_model import MeteredModel
+
+        inner = TestModel()
+        rr = RRStep(
+            inner,
+            config=RRConfig(usage_callback=lambda u, n: None),
+        )
+
+        assert isinstance(rr._agent.model, MeteredModel)
+        assert rr._agent.model.wrapped is inner

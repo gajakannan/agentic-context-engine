@@ -554,7 +554,8 @@ ace/
 | `ace/runners/` | `ACERunner`, `TraceAnalyser`, `ACE`, `BrowserUse`, `LangChain`, `ClaudeCode`, `ACELiteLLM` |
 | `ace/providers/` | `resolve_model`, `ACEModelConfig`, `validate_connection` |
 | `ace/steps/rr_step.py` | `RRStep` (RecursiveAgent subclass), `RRConfig`, `TraceSandbox` |
-| `ace/core/recursive_agent.py` | `RecursiveAgent`, `AgenticConfig`, `AgenticDeps`, compaction, recursion |
+| `ace/core/recursive_agent.py` | `RecursiveAgent`, `AgenticConfig`, `AgenticDeps`, compaction, recursion, `usage_callback` hook |
+| `ace/core/metered_model.py` | `MeteredModel` — pydantic-ai `WrapperModel` that fires the `usage_callback` once per request |
 | `ace/integrations/` | Execute steps, result types, ToTrace converters; MCP server |
 | `ace/deduplication/` | Dedup subsystem (detector, manager, operations) |
 | `ace/observability/` | Logfire configuration (`configure_logfire()`) |

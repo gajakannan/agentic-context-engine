@@ -126,6 +126,7 @@ Defined in `ace/core/recursive_agent.py`. All fields inherited by `RRConfig`.
 | `microcompact_keep_recent` | `3` | Number of most recent tool results preserved during microcompaction. |
 | `timeout` | `60.0` | Seconds per sandbox `execute()` call. Uses `signal.SIGALRM` on Unix. |
 | `max_output_chars` | `20_000` | Per-execution stdout/stderr truncation limit. |
+| `usage_callback` | `None` | Optional `(RequestUsage, model_id) -> None` hook fired once per completed pydantic-ai request (orchestrator turn, child session, compaction summary). Callback exceptions are swallowed, so a broken meter never crashes a run. Implemented via `ace.core.metered_model.MeteredModel`. |
 
 ### RRConfig (alias for RecursiveConfig)
 

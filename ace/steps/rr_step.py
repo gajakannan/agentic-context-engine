@@ -11,6 +11,7 @@ import json as _json
 import logging
 from typing import Any, Optional
 
+from pydantic_ai.models import Model as PydanticModel
 from pydantic_ai.settings import ModelSettings
 
 from ace.core.context import ACEStepContext
@@ -53,7 +54,11 @@ class RRStep(RecursiveAgent):
     recursion, and budget management.
 
     Args:
-        model: LiteLLM or PydanticAI model string.
+        model: LiteLLM/PydanticAI model-id string or a pre-built
+            pydantic-ai ``Model`` instance. Strings go through
+            ``resolve_model``; instances pass through unchanged (for
+            callers that need a custom provider — e.g. cross-account
+            Bedrock with STS-assumed credentials).
         config: RR configuration (timeouts, limits, sub-agent settings).
         prompt_template: User prompt template with format placeholders.
         model_settings: Override PydanticAI model settings.
@@ -64,7 +69,7 @@ class RRStep(RecursiveAgent):
 
     def __init__(
         self,
-        model: str,
+        model: str | PydanticModel,
         config: Optional[RRConfig] = None,
         prompt_template: str = REFLECTOR_RECURSIVE_PROMPT,
         model_settings: ModelSettings | None = None,
@@ -180,13 +185,15 @@ class RRStep(RecursiveAgent):
 
         initial_prompt = self._build_initial_prompt(traces, skillbook)
 
-        if mode == "online" and skillbook_text and skillbook_text != "(empty skillbook)":
+        if (
+            mode == "online"
+            and skillbook_text
+            and skillbook_text != "(empty skillbook)"
+        ):
             initial_prompt += "\n\n" + RR_SKILL_EVAL_SECTION
 
         remaining = (
-            traces.get("_remaining_tokens")
-            if isinstance(traces, dict)
-            else None
+            traces.get("_remaining_tokens") if isinstance(traces, dict) else None
         )
         try:
             output, metadata = self.run(
@@ -337,9 +344,7 @@ class RRStep(RecursiveAgent):
                 skillbook_text = str(skillbook)
 
         if isinstance(traces, dict):
-            traces_description = (
-                f"Dict with keys: {', '.join(sorted(traces.keys()))}"
-            )
+            traces_description = f"Dict with keys: {', '.join(sorted(traces.keys()))}"
         elif isinstance(traces, list):
             traces_description = f"List of {len(traces)} items"
         else:
@@ -380,9 +385,7 @@ class RRStep(RecursiveAgent):
             ),
             error_identification="timeout" if not is_correct else "none",
             root_cause_analysis="Analysis incomplete due to budget limit",
-            correct_approach=(
-                "Consider increasing budget or simplifying the analysis"
-            ),
+            correct_approach=("Consider increasing budget or simplifying the analysis"),
             key_insight=(
                 "Complex traces may require more budget for thorough analysis"
             ),
