@@ -60,7 +60,12 @@ class MockReflector:
 
 
 class MockSkillManager:
-    """Minimal mock satisfying SkillManagerLike."""
+    """Minimal mock satisfying SkillManagerLike.
+
+    The real SM mutates the skillbook directly via tool calls; this mock
+    applies its pre-canned ``output`` to the incoming skillbook so
+    ``UpdateStep`` behaves like the live code path.
+    """
 
     def __init__(self, output: SkillManagerOutput | None = None):
         self.output = output or SkillManagerOutput(
@@ -84,6 +89,7 @@ class MockSkillManager:
                 "progress": progress,
             }
         )
+        skillbook.apply_update(self.output.update)
         return self.output
 
 

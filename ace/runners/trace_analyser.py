@@ -26,9 +26,10 @@ from .base import ACERunner
 class TraceAnalyser(ACERunner):
     """Analyse pre-recorded traces to build a skillbook.
 
-    Runs the learning tail only — Reflect, Tag, Update, Apply — with
-    optional deduplication and checkpoint steps.  No AgentStep, no
-    EvaluateStep.
+    Runs the learning tail only — Reflect and Update — with optional
+    deduplication and checkpoint steps.  No AgentStep, no EvaluateStep.
+    The agentic SkillManager mutates the skillbook directly through its
+    tools, so no ApplyStep is needed.
 
     Accepts raw trace objects of any type.  They are placed directly on
     ``ctx.trace`` for the Reflector to interpret.

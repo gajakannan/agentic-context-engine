@@ -429,8 +429,9 @@ class ACELiteLLM:
         """Learn from the last :meth:`ask` interaction.
 
         Runs the standard ``learning_tail`` pipeline (ReflectStep,
-        UpdateStep, ApplyStep) on the most recent ``ask()``
-        call with the provided feedback.
+        UpdateStep) on the most recent ``ask()`` call with the provided
+        feedback. The agentic SkillManager mutates the skillbook directly
+        — there is no separate apply step.
 
         Args:
             feedback: User feedback about the answer quality.

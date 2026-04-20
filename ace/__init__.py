@@ -45,7 +45,6 @@ if TYPE_CHECKING:
     )
     from .steps import (
         AgentStep,
-        ApplyStep,
         CheckpointStep,
         DeduplicateStep,
         EvaluateStep,
@@ -107,7 +106,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "EvaluateStep": ("ace.steps", "EvaluateStep"),
     "ReflectStep": ("ace.steps", "ReflectStep"),
     "UpdateStep": ("ace.steps", "UpdateStep"),
-    "ApplyStep": ("ace.steps", "ApplyStep"),
     "DeduplicateStep": ("ace.steps", "DeduplicateStep"),
     "CheckpointStep": ("ace.steps", "CheckpointStep"),
     "LoadTracesStep": ("ace.steps", "LoadTracesStep"),
@@ -178,7 +176,6 @@ __all__ = [
     "EvaluateStep",
     "ReflectStep",
     "UpdateStep",
-    "ApplyStep",
     "DeduplicateStep",
     "CheckpointStep",
     "LoadTracesStep",

@@ -1,4 +1,4 @@
-"""Tests for ace steps: ReflectStep, UpdateStep, provenance, ApplyStep."""
+"""Tests for ace steps: ReflectStep, UpdateStep, provenance."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from ace.core.outputs import (
 )
 from ace.core.skillbook import Skillbook, UpdateBatch, UpdateOperation
 from ace.steps import learning_tail
-from ace.steps.apply import ApplyStep
 from ace.steps.reflect import ReflectStep
 from ace.steps.update import UpdateStep
 
@@ -104,7 +103,6 @@ class TestReflectStep:
             "reasoning": "simple math",
             "ground_truth": "4",
             "feedback": "Correct!",
-            "skill_ids": ["math-001"],
         }
         sb = Skillbook()
         ctx = ACEStepContext(
@@ -183,9 +181,9 @@ class TestReflectStep:
 class TestUpdateStep:
     def test_generates_update_batch(self):
         sm = MockSkillManager()
-        step = UpdateStep(sm)
-
         sb = Skillbook()
+        step = UpdateStep(sm, sb)
+
         reflection = ReflectorOutput(
             reasoning="r",
             correct_approach="c",
@@ -213,9 +211,9 @@ class TestUpdateStep:
     def test_non_dict_trace(self):
         """Non-dict trace should produce empty question_context."""
         sm = MockSkillManager()
-        step = UpdateStep(sm)
-
         sb = Skillbook()
+        step = UpdateStep(sm, sb)
+
         reflection = ReflectorOutput(
             reasoning="r",
             correct_approach="c",
@@ -233,8 +231,8 @@ class TestUpdateStep:
     def test_forwards_full_reflections_tuple(self):
         """UpdateStep forwards the entire reflections tuple to the skill manager."""
         sm = MockSkillManager()
-        step = UpdateStep(sm)
         sb = Skillbook()
+        step = UpdateStep(sm, sb)
 
         r1 = ReflectorOutput(reasoning="r1", correct_approach="c", key_insight="k1")
         r2 = ReflectorOutput(reasoning="r2", correct_approach="c", key_insight="k2")
@@ -248,52 +246,11 @@ class TestUpdateStep:
         assert sm.calls[0]["reflections"] == (r1, r2)
 
     def test_provides_and_requires(self):
-        step = UpdateStep(MockSkillManager())
+        sb = Skillbook()
+        step = UpdateStep(MockSkillManager(), sb)
         assert "reflections" in step.requires
         assert "skillbook" in step.requires
         assert "skill_manager_output" in step.provides
-        assert step.max_workers == 1
-
-
-# ------------------------------------------------------------------ #
-# ApplyStep
-# ------------------------------------------------------------------ #
-
-
-class TestApplyStep:
-    def test_applies_update(self):
-        sb = Skillbook()
-        step = ApplyStep(sb)
-
-        batch = UpdateBatch(
-            reasoning="test",
-            operations=[
-                UpdateOperation(type="ADD", section="math", content="new skill")
-            ],
-        )
-        ctx = ACEStepContext(skill_manager_output=batch)
-
-        result = step(ctx)
-        assert result is ctx
-        assert len(sb.skills()) == 1
-        assert sb.skills()[0].content == "new skill"
-
-    def test_none_update_is_noop(self):
-        """None skill_manager_output should be a safe no-op."""
-        sb = Skillbook()
-        step = ApplyStep(sb)
-
-        ctx = ACEStepContext(skill_manager_output=None)
-
-        result = step(ctx)
-        assert result is ctx
-        assert len(sb.skills()) == 0
-
-    def test_provides_and_requires(self):
-        sb = Skillbook()
-        step = ApplyStep(sb)
-        assert "skill_manager_output" in step.requires
-        assert len(step.provides) == 0
         assert step.max_workers == 1
 
 
@@ -309,10 +266,9 @@ class TestLearningTail:
         sb = Skillbook()
 
         steps = learning_tail(reflector, sm, sb)
-        assert len(steps) == 3
+        assert len(steps) == 2
         assert isinstance(steps[0], ReflectStep)
         assert isinstance(steps[1], UpdateStep)
-        assert isinstance(steps[2], ApplyStep)
 
     def test_step_like_reflector_is_inserted_directly(self):
         class ReflectorStep(MockReflector):
@@ -343,7 +299,7 @@ class TestLearningTail:
             checkpoint_dir=str(tmp_path),
             checkpoint_interval=5,
         )
-        assert len(steps) == 4  # 3 + CheckpointStep
+        assert len(steps) == 3  # 2 + CheckpointStep
 
     def test_with_dedup(self):
         reflector = MockReflector()
@@ -358,7 +314,7 @@ class TestLearningTail:
             dedup_manager=dedup,
             dedup_interval=5,
         )
-        assert len(steps) == 4  # 3 + DeduplicateStep
+        assert len(steps) == 3  # 2 + DeduplicateStep
 
     def test_with_both(self, tmp_path):
         reflector = MockReflector()
@@ -375,4 +331,4 @@ class TestLearningTail:
             checkpoint_dir=str(tmp_path),
             checkpoint_interval=5,
         )
-        assert len(steps) == 5  # 3 + DeduplicateStep + CheckpointStep
+        assert len(steps) == 4  # 2 + DeduplicateStep + CheckpointStep

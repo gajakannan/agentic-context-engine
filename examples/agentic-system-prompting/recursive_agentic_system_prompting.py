@@ -10,7 +10,7 @@ to RRStep via a thin adapter step, so the sandbox
 receives the full conversation data.
 
 TraceAnalyser handles the rest of the learning-tail pipeline:
-    [RRTraceStep] → UpdateStep → ApplyStep
+    [RRTraceStep] → UpdateStep  (the agentic SkillManager mutates directly)
 
 Usage:
     python recursive_agentic_system_prompting.py /path/to/traces
@@ -57,7 +57,7 @@ from ace.core.context import ACEStepContext
 from ace.deduplication import DeduplicationManager
 from ace.protocols.deduplication import DeduplicationConfig
 from ace.implementations.prompts import wrap_skillbook_for_external_agent
-from ace.steps import UpdateStep, ApplyStep, DeduplicateStep
+from ace.steps import UpdateStep, DeduplicateStep
 from ace.implementations.rr.prompts import REFLECTOR_RECURSIVE_PROMPT
 
 
@@ -195,12 +195,13 @@ def main():
         )
     )
 
-    # Build pipeline: RRTraceStep → Update → Apply → Dedup
+    # Build pipeline: RRTraceStep → Update → Dedup
+    # (SkillManager mutates the skillbook directly via its tools, so no
+    # separate ApplyStep is needed.)
     steps: list[Any] = [RRTraceStep(rr)]
     steps.extend(
         [
-            UpdateStep(skill_manager),
-            ApplyStep(skillbook),
+            UpdateStep(skill_manager, skillbook),
             DeduplicateStep(dedup, skillbook),
         ]
     )

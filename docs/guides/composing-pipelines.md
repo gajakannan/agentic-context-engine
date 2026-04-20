@@ -21,10 +21,11 @@ Every ACE pipeline is a sequence of steps, each with a `requires`/`provides`
 contract that declares what context fields it reads and writes:
 
 ```
-AgentStep ─────> EvaluateStep ─────> ReflectStep ─────> UpdateStep ─────> ApplyStep
-  provides:        provides:           provides:          provides:         (mutates
-  agent_output     trace                reflections       skill_manager     skillbook)
-                                                                        _output
+AgentStep ─────> EvaluateStep ─────> ReflectStep ─────> UpdateStep
+  provides:        provides:           provides:          provides:
+  agent_output     trace                reflections        skill_manager_output
+                                                          (also mutates skillbook
+                                                           via the SM's tools)
 ```
 
 The pipeline validates these contracts at construction time — if a step requires
@@ -71,7 +72,7 @@ steps = learning_tail(
     dedup_manager=my_dedup_manager,      # optional
     checkpoint_dir="/tmp/checkpoints",    # optional
 )
-# Returns: [ReflectStep, UpdateStep, ApplyStep,
+# Returns: [ReflectStep, UpdateStep,
 #           DeduplicateStep, CheckpointStep]
 ```
 
@@ -261,8 +262,7 @@ All steps are importable from `ace`:
 | `AgentStep` | Execute Agent role |
 | `EvaluateStep` | Run TaskEnvironment evaluation |
 | `ReflectStep` | Run Reflector role (async boundary) |
-| `UpdateStep` | Run SkillManager to generate updates |
-| `ApplyStep` | Apply updates to skillbook |
+| `UpdateStep` | Run the agentic SkillManager; its tools mutate the skillbook directly |
 | `DeduplicateStep` | Merge near-duplicate skills |
 | `CheckpointStep` | Save skillbook to disk |
 | `LoadTracesStep` | Load JSONL trace files |

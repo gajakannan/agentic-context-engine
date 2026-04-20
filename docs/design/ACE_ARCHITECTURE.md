@@ -88,7 +88,7 @@ The `Skillbook` is mutable — steps add, update, and remove skills. Placing it 
 - **Runtime** — `AttributeError` if someone calls a write method anyway.
 - **Convention** — the underlying `_sb` is underscore-prefixed. Accessing it is a deliberate violation.
 
-Steps that only **read** the skillbook (AgentStep, ReflectStep, UpdateStep) access `ctx.skillbook` — the view. Steps that **write** the skillbook (ApplyStep, DeduplicateStep, CheckpointStep) receive the real `Skillbook` via constructor injection and use `self.skillbook`.
+Steps that only **read** the skillbook (ReflectStep) access `ctx.skillbook` — the view. Steps that **write** the skillbook (AgentStep, UpdateStep, DeduplicateStep, CheckpointStep) receive the real `Skillbook` via constructor injection and use `self.skillbook`. `AgentStep` bumps `used_count`; `UpdateStep` invokes the agentic SkillManager whose tools apply ADD / UPDATE / REMOVE / TAG directly.
 
 ### ACEStepContext — immutable step-to-step data
 
@@ -173,8 +173,7 @@ Reusable step implementations in `ace/steps/`. Each satisfies `StepProtocol[ACES
 | **AgentStep** | `sample`, `skillbook` | `agent_output` | None | 1 |
 | **EvaluateStep** | `sample`, `agent_output` | `trace` | None | 1 |
 | **ReflectStep** | `trace`, `skillbook` | `reflections` | None | 3; `async_boundary = True` |
-| **UpdateStep** | `reflections`, `skillbook` | `skill_manager_output` | None | 1 |
-| **ApplyStep** | `skill_manager_output` | — | Applies update batch to skillbook | 1 |
+| **UpdateStep** | `reflections`, `skillbook` | `skill_manager_output` | Agentic SkillManager mutates skillbook directly via ADD / UPDATE / REMOVE / TAG tools; output is an audit log | 1 |
 | **DeduplicateStep** | `global_sample_index` | — | Consolidates similar skills | 1 |
 | **CheckpointStep** | `global_sample_index` | — | Saves skillbook to disk | 1 |
 | **LoadTracesStep** | `sample` | `trace` | None | 1 |
@@ -247,7 +246,7 @@ Analyses pre-recorded traces without executing an agent. Runs the learning tail 
 **Pipeline:**
 
 ```
-[ReflectStep] → [UpdateStep] → [ApplyStep]
+[ReflectStep] → [UpdateStep]   (SkillManager mutates the skillbook directly)
 ```
 
 No AgentStep, no EvaluateStep. The trace already contains the agent's output and the evaluation feedback.
@@ -263,7 +262,7 @@ The full live adaptive pipeline. An agent executes, the reflector analyses, the 
 **Pipeline:**
 
 ```
-[AgentStep] → [EvaluateStep] → [ReflectStep] → [UpdateStep] → [ApplyStep]
+[AgentStep] → [EvaluateStep] → [ReflectStep] → [UpdateStep]   (SkillManager mutates the skillbook directly)
 ```
 
 A single class handles both single-pass (`epochs=1`) and multi-epoch batch training (`epochs > 1`). The `environment` is optional — when provided, `EvaluateStep` generates feedback. When omitted, the Reflector learns from ground-truth comparison or the agent's reasoning alone.
@@ -477,7 +476,7 @@ Both TraceAnalyser and ACE inherit async capabilities from the pipeline engine. 
 `ReflectStep.async_boundary = True` means everything before it (Agent, Evaluate) runs in the foreground, and everything from ReflectStep onwards runs in a background thread pool:
 
 ```
-sample 1:  [AgentStep] [EvaluateStep] ──fire──► [ReflectStep] [UpdateStep] [ApplyStep]
+sample 1:  [AgentStep] [EvaluateStep] ──fire──► [ReflectStep] [UpdateStep]
 sample 2:  [AgentStep] [EvaluateStep] ──fire──► ...
                                        ↑
                                  async_boundary
@@ -488,8 +487,7 @@ sample 2:  [AgentStep] [EvaluateStep] ──fire──► ...
 | Knob | Where | Effect |
 |---|---|---|
 | `ReflectStep.max_workers = 3` | Step class attribute | Up to 3 reflections in parallel |
-| `UpdateStep.max_workers = 1` | Step class attribute | Serialises skill manager LLM calls |
-| `ApplyStep.max_workers = 1` | Step class attribute | Serialises skillbook writes |
+| `UpdateStep.max_workers = 1` | Step class attribute | Serialises skill manager LLM calls AND skillbook writes (SM tools mutate in place) |
 | `wait_for_background(timeout)` | Runner method | Blocks until background threads drain |
 
 ### Cancellation
