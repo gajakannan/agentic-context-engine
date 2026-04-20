@@ -30,10 +30,23 @@ import asyncio
 import concurrent.futures
 import copy
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Sequence, Type
 
 from pydantic_ai import Agent as PydanticAgent
+
+try:
+    import logfire as _logfire
+except ImportError:
+    _logfire = None
+
+
+def _rr_span(name: str, **attrs: Any):
+    """Open a logfire span if logfire is installed, else a no-op context."""
+    if _logfire is not None:
+        return _logfire.span(name, **attrs)
+    return nullcontext()
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelRequest,
@@ -402,75 +415,79 @@ async def run_agent_with_compaction(
     cumulative_usage = None
     last_run: Any = None
 
-    while True:
-        try:
-            async with agent.iter(
-                user_prompt,
-                deps=deps,
-                message_history=message_history,
-                usage_limits=usage_limits,
-                usage=cumulative_usage,
-            ) as agent_run:
-                last_run = agent_run
-                async for _node in agent_run:
-                    deps.parent_usage_tokens = agent_run.usage().total_tokens or 0
-
-                output = agent_run.result.output
-                usage = agent_run.result.usage()
-
-                metadata = {
-                    "usage": {
-                        "input_tokens": usage.input_tokens,
-                        "output_tokens": usage.output_tokens,
-                        "total_tokens": usage.total_tokens,
-                        "requests": usage.requests,
-                    },
-                    "compactions": compaction_count,
-                    "depth": deps.depth,
-                    "iterations": deps.iteration,
-                    "timed_out": False,
-                }
-                return output, metadata
-
-        except UsageLimitExceeded:
-            messages = last_run.all_messages()
-            cumulative_usage = last_run.usage()
-
-            if is_budget_exhausted(usage_limits, cumulative_usage):
-                raise BudgetExhausted(
-                    compaction_count=compaction_count,
+    span_name = "rr.session" if deps.depth == 0 else "rr.session.child"
+    with _rr_span(span_name, depth=deps.depth):
+        while True:
+            try:
+                async with agent.iter(
+                    user_prompt,
+                    deps=deps,
+                    message_history=message_history,
+                    usage_limits=usage_limits,
                     usage=cumulative_usage,
-                )
+                ) as agent_run:
+                    last_run = agent_run
+                    async for _node in agent_run:
+                        deps.parent_usage_tokens = (
+                            agent_run.usage().total_tokens or 0
+                        )
 
-            compacted = microcompact(
-                messages,
-                config.microcompact_keep_recent,
-                tool_names_to_compact,
-                placeholder=microcompact_placeholder,
-            )
+                    output = agent_run.result.output
+                    usage = agent_run.result.usage()
 
-            if compacted is messages:
-                compaction_count += 1
-                if compaction_count > config.max_compactions:
+                    metadata = {
+                        "usage": {
+                            "input_tokens": usage.input_tokens,
+                            "output_tokens": usage.output_tokens,
+                            "total_tokens": usage.total_tokens,
+                            "requests": usage.requests,
+                        },
+                        "compactions": compaction_count,
+                        "depth": deps.depth,
+                        "iterations": deps.iteration,
+                        "timed_out": False,
+                    }
+                    return output, metadata
+
+            except UsageLimitExceeded:
+                messages = last_run.all_messages()
+                cumulative_usage = last_run.usage()
+
+                if is_budget_exhausted(usage_limits, cumulative_usage):
                     raise BudgetExhausted(
                         compaction_count=compaction_count,
                         usage=cumulative_usage,
                     )
 
-                if on_compaction:
-                    on_compaction(deps, compaction_count, messages)
-
-                compacted = await summarize_and_compact(
-                    agent,
+                compacted = microcompact(
                     messages,
-                    deps,
-                    compaction_count,
-                    summary_prompt=compaction_summary_prompt,
-                    continuation_message=compaction_continuation,
+                    config.microcompact_keep_recent,
+                    tool_names_to_compact,
+                    placeholder=microcompact_placeholder,
                 )
 
-            message_history = compacted
-            user_prompt = "Continue your analysis."
+                if compacted is messages:
+                    compaction_count += 1
+                    if compaction_count > config.max_compactions:
+                        raise BudgetExhausted(
+                            compaction_count=compaction_count,
+                            usage=cumulative_usage,
+                        )
+
+                    if on_compaction:
+                        on_compaction(deps, compaction_count, messages)
+
+                    compacted = await summarize_and_compact(
+                        agent,
+                        messages,
+                        deps,
+                        compaction_count,
+                        summary_prompt=compaction_summary_prompt,
+                        continuation_message=compaction_continuation,
+                    )
+
+                message_history = compacted
+                user_prompt = "Continue your analysis."
 
 
 # ------------------------------------------------------------------
