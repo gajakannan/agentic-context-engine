@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Skillbook prompt format is now markdown** — `Skillbook.as_prompt()` returns a section-grouped markdown list instead of TOON. The `python-toon` dependency has been dropped.
+
+### Removed
+- `python-toon` runtime dependency.
+
 ## [0.10.0] - 2026-04-13
 
 ### Added

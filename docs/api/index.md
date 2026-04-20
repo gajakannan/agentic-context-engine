@@ -211,7 +211,7 @@ skillbook = Skillbook()
 |-------------------|-------------|
 | `add_skill(section, content, metadata=None)` | Add a strategy |
 | `apply_update(update_batch)` | Apply update operations |
-| `as_prompt()` | TOON format for LLM consumption |
+| `as_prompt()` | Markdown format for LLM consumption |
 | `save_to_file(path)` | Save to JSON |
 | `Skillbook.load_from_file(path)` | Load from JSON |
 | `stats()` | Section count, skill count, tag totals |

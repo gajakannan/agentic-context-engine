@@ -43,7 +43,6 @@ dependencies = [
     "litellm>=1.83.0",
     "pydantic>=2.0.0",
     "pydantic-ai-slim[litellm]>=0.0.36",
-    "python-toon>=0.1.0",
     "tau2",
     "tenacity>=9.1.4",
 ]
@@ -136,6 +135,7 @@ dev = [
     "git-changelog>=2.5.0",
     "boto3>=1.42.50",
     "types-requests>=2.32.4.20260107",
+    "nest-asyncio>=1.6.0",
 ]
 tau-bench = [
     "tau2 @ git+https://github.com/sierra-research/tau2-bench.git@dev/tau3",

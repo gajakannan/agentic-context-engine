@@ -29,7 +29,9 @@ from .insight_source import (
 # Constants
 # ---------------------------------------------------------------------------
 
-VALID_SKILL_TAGS: FrozenSet[str] = frozenset({"helpful", "harmful", "neutral"})  # used by Reflector skill_tags
+VALID_SKILL_TAGS: FrozenSet[str] = frozenset(
+    {"helpful", "harmful", "neutral"}
+)  # used by Reflector skill_tags
 
 # ---------------------------------------------------------------------------
 # Update operations
@@ -531,22 +533,17 @@ class Skillbook:
     # ------------------------------------------------------------------ #
 
     def as_prompt(self) -> str:
-        try:
-            from toon import encode
-        except ImportError:
-            raise ImportError(
-                "TOON compression requires python-toon. "
-                "Install with: pip install python-toon>=0.1.0"
-            )
-        skills_data = [s.to_llm_dict() for s in self.skills()]
-        return encode({"skills": skills_data}, {"delimiter": "\t"})
-
-    def _as_markdown_debug(self) -> str:
         parts: List[str] = []
         for section, skill_ids in sorted(self._sections.items()):
+            section_skills = [
+                self._skills[sid]
+                for sid in skill_ids
+                if self._skills[sid].status == "active"
+            ]
+            if not section_skills:
+                continue
             parts.append(f"## {section}")
-            for skill_id in skill_ids:
-                skill = self._skills[skill_id]
+            for skill in section_skills:
                 parts.append(f"- [{skill.id}] {skill.content}")
         return "\n".join(parts)
 

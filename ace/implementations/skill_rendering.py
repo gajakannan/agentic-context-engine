@@ -1,6 +1,6 @@
 """XML skill rendering and per-task skill retrieval.
 
-Provides an alternative to the TOON-based ``Skillbook.as_prompt()`` that
+Provides an alternative to the markdown-based ``Skillbook.as_prompt()`` that
 renders skills as XML ``<strategy>`` elements and supports embedding-based
 top-k retrieval for per-task skill injection.
 """

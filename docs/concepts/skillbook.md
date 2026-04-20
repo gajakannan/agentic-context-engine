@@ -40,25 +40,20 @@ Skills go through four stages:
 
 These correspond to four [update operations](updates.md): `ADD`, `TAG`, `UPDATE`, `REMOVE`.
 
-## TOON Format
+## Prompt Format
 
-When the skillbook is included in LLM prompts, it uses **TOON** (Token-Oriented Object Notation) — a compact format that saves 16-62% tokens compared to JSON:
-
-```python
-skillbook.as_prompt()  # TOON format for LLM consumption
-```
-
-```
-skills[3]{id	section	content	helpful	harmful	neutral}:
-  math-00001	Math Strategies	Break complex problems into smaller steps	5	0	1
-  math-00002	Math Strategies	Verify answers by working backwards	3	1	0
-  logic-00001	Logic	Check edge cases before concluding	2	0	0
-```
-
-For human debugging, use the string representation:
+When the skillbook is included in LLM prompts, it is rendered as markdown grouped by section:
 
 ```python
-str(skillbook)  # Markdown format for readability
+skillbook.as_prompt()  # Markdown format for LLM consumption
+```
+
+```
+## Math Strategies
+- [math-00001] Break complex problems into smaller steps
+- [math-00002] Verify answers by working backwards
+## Logic
+- [logic-00001] Check edge cases before concluding
 ```
 
 ## Sections

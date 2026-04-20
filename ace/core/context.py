@@ -62,7 +62,7 @@ class SkillbookView:
     # -- Read methods delegated to the underlying Skillbook --
 
     def as_prompt(self) -> str:
-        """Return the TOON-encoded skillbook for LLM consumption."""
+        """Return the markdown-formatted skillbook for LLM consumption."""
         return self._sb.as_prompt()
 
     def get_skill(self, skill_id: str) -> Skill | None:
