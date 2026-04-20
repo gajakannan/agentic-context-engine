@@ -26,11 +26,13 @@ from ace.implementations.rr.prompts import (
     COMPACTION_SUMMARY_PROMPT,
     REFLECTOR_RECURSIVE_PROMPT,
     REFLECTOR_RECURSIVE_SYSTEM,
-    RR_SKILL_EVAL_SECTION,
+    RR_SKILLBOOK_INSPECTION_SECTION,
 )
 from ace.implementations.rr.tools import (
     RRDeps,
     register_output_validator,
+    register_read_skill,
+    register_search_skillbook,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,7 +84,11 @@ class RRStep(RecursiveAgent):
             system_prompt=REFLECTOR_RECURSIVE_SYSTEM,
             config=config or RRConfig(),
             model_settings=model_settings,
-            tools=[register_output_validator],
+            tools=[
+                register_output_validator,
+                register_read_skill,
+                register_search_skillbook,
+            ],
             tool_names_to_compact=("execute_code",),
             compaction_summary_prompt=COMPACTION_SUMMARY_PROMPT,
             compaction_continuation=(
@@ -110,6 +116,7 @@ class RRStep(RecursiveAgent):
             ground_truth=trace.get("ground_truth") if isinstance(trace, dict) else None,
             feedback=trace.get("feedback") if isinstance(trace, dict) else None,
             skillbook=ctx.skillbook,
+            injected_skill_ids=ctx.injected_skill_ids,
             trace=trace if not isinstance(trace, dict) else None,
             mode=ctx.mode,
         )
@@ -151,6 +158,7 @@ class RRStep(RecursiveAgent):
         skillbook: Any = None,
         ground_truth: Optional[str] = None,
         feedback: Optional[str] = None,
+        injected_skill_ids: tuple[str, ...] = (),
         mode: str = "online",
         **kwargs: Any,
     ) -> ReflectorOutput:
@@ -162,7 +170,12 @@ class RRStep(RecursiveAgent):
         traces = kwargs.pop("traces", None)
         if traces is None:
             traces = self._build_traces_dict(
-                question, agent_output, ground_truth, feedback, trace_obj
+                question,
+                agent_output,
+                ground_truth,
+                feedback,
+                trace_obj,
+                injected_skill_ids,
             )
 
         sandbox = self._create_sandbox(trace_obj, traces, skillbook)
@@ -178,6 +191,7 @@ class RRStep(RecursiveAgent):
             sandbox=sandbox,
             trace_data=traces,
             skillbook_text=skillbook_text or "(empty skillbook)",
+            skillbook=skillbook,
             config=self.config,
             depth=0,
             max_depth=self.config.max_depth,
@@ -190,15 +204,22 @@ class RRStep(RecursiveAgent):
             and skillbook_text
             and skillbook_text != "(empty skillbook)"
         ):
-            initial_prompt += "\n\n" + RR_SKILL_EVAL_SECTION
+            initial_prompt += "\n\n" + RR_SKILLBOOK_INSPECTION_SECTION
 
         remaining = (
             traces.get("_remaining_tokens") if isinstance(traces, dict) else None
         )
+
+        prompt_payload: Any = initial_prompt
+        if self.config.cache_prompts:
+            from pydantic_ai.messages import CachePoint
+
+            prompt_payload = [initial_prompt, CachePoint(ttl=self.config.cache_ttl)]
+
         try:
             output, metadata = self.run(
                 deps=deps,
-                prompt=initial_prompt,
+                prompt=prompt_payload,
                 remaining_tokens=remaining,
             )
             output.raw = {
@@ -264,18 +285,19 @@ class RRStep(RecursiveAgent):
         ground_truth: Optional[str],
         feedback: Optional[str],
         trace_obj: Any,
+        injected_skill_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         ao = agent_output
         return {
             "question": question,
             "ground_truth": ground_truth,
             "feedback": feedback,
+            "injected_skill_ids": list(injected_skill_ids),
             "steps": [
                 {
                     "role": "agent",
                     "reasoning": ao.reasoning if ao else "",
                     "answer": ao.final_answer if ao else "",
-                    "skill_ids": ao.skill_ids if ao else [],
                 }
             ],
         }
@@ -389,7 +411,6 @@ class RRStep(RecursiveAgent):
             key_insight=(
                 "Complex traces may require more budget for thorough analysis"
             ),
-            skill_tags=[],
             raw={
                 "timeout": True,
                 "question": question,

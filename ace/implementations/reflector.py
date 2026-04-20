@@ -16,8 +16,8 @@ from ..core.context import SkillbookView
 from ..core.outputs import AgentOutput, ReflectorOutput
 from ..core.skillbook import Skillbook
 from ..providers.pydantic_ai import resolve_model
-from .helpers import extract_cited_skill_ids, format_optional, make_skillbook_excerpt
-from .prompts import REFLECTOR_PROMPT, REFLECTOR_SKILL_EVAL_SECTION
+from .helpers import format_optional, make_skillbook_excerpt
+from .prompts import REFLECTOR_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,10 @@ class Reflector:
 
     This implementation supports **SIMPLE** mode only (single-pass
     reflection). Recursive mode is handled by :mod:`ace.steps.rr`.
+
+    The Reflector produces pure analysis — it does not classify or tag
+    skills. Skill-effectiveness decisions are made by the SkillManager
+    using ``ctx.injected_skill_ids`` plus the reflection.
 
     Args:
         model: Model identifier string. Supports any LiteLLM model
@@ -78,7 +82,7 @@ class Reflector:
         skillbook: Union[SkillbookView, Skillbook],
         ground_truth: Optional[str] = None,
         feedback: Optional[str] = None,
-        mode: str = "online",
+        injected_skill_ids: tuple[str, ...] = (),
         **kwargs: Any,
     ) -> ReflectorOutput:
         """Analyze agent performance and extract learnings.
@@ -91,19 +95,19 @@ class Reflector:
             skillbook: Current skillbook (needs ``get_skill``).
             ground_truth: Expected correct answer (if available).
             feedback: Environment feedback text.
-            mode: ``"online"`` includes skill evaluation and tagging;
-                ``"offline"`` skips it.
+            injected_skill_ids: Skills rendered into the agent's prompt
+                this run. Used to build the "Strategies Applied" excerpt.
             **kwargs: Accepted for protocol compatibility but not forwarded.
 
         Returns:
-            :class:`ReflectorOutput` with analysis and skill tags.
+            :class:`ReflectorOutput` with pure analysis (no tagging).
         """
-        skillbook_excerpt = make_skillbook_excerpt(skillbook, agent_output.skill_ids)
+        skillbook_excerpt = make_skillbook_excerpt(skillbook, injected_skill_ids)
 
         if skillbook_excerpt:
             skillbook_context = f"Strategies Applied:\n{skillbook_excerpt}"
         else:
-            skillbook_context = "(No strategies cited - outcome-based learning)"
+            skillbook_context = "(No strategies injected - outcome-based learning)"
 
         prompt = self._prompt_template.format(
             question=question,
@@ -113,10 +117,6 @@ class Reflector:
             feedback=format_optional(feedback),
             skillbook_excerpt=skillbook_context,
         )
-
-        # In online mode, append skill evaluation instructions
-        if mode == "online" and skillbook_excerpt:
-            prompt += "\n\n" + REFLECTOR_SKILL_EVAL_SECTION
 
         result = self._agent.run_sync(prompt)
         output = result.output

@@ -92,48 +92,22 @@ Now analyze the task.
 
 
 # ---------------------------------------------------------------------------
-# Online mode: skill evaluation
+# Online mode: skillbook inspection guidance
 # ---------------------------------------------------------------------------
 
-RR_SKILL_EVAL_SECTION = """\
-<skill_evaluation>
-## Skill Effectiveness Evaluation (Online Mode)
+RR_SKILLBOOK_INSPECTION_SECTION = """\
+<skillbook_inspection>
+## Skillbook Inspection (Online Mode)
 
-The `skillbook` variable contains strategies the agent had available. The agent may have cited \
-skill IDs (e.g. `[general-00042]`) in its reasoning within the trace.
+The agent had access to a skillbook of strategies. The IDs rendered into the agent's prompt \
+this run are listed as `injected_skill_ids` in the trace dict. Use the `search_skillbook(query, \
+top_k)` and `read_skill(skill_id)` tools to inspect these strategies while forming your analysis.
 
-**You must evaluate skill usage.** Use a single `execute_code` call to:
-1. Scan all trace text for skill ID citations (pattern: `[section-NNNNN]`)
-2. Verify each cited ID exists in the `skillbook` string
-3. For each verified skill, determine if it helped, harmed, or was neutral based on the outcome
-
-Example (run this as one code block):
-```python
-import re
-
-# Extract all cited skill IDs from trace text
-trace_text = json.dumps(traces, default=str)
-cited_ids = list(dict.fromkeys(re.findall(r'\\[([a-zA-Z_]+-\\d+)\\]', trace_text)))
-
-# Verify against skillbook and classify
-results = []
-for sid in cited_ids:
-    exists = sid in skillbook
-    results.append({{"id": sid, "exists": exists}})
-
-print(f"Cited skills: {{len(cited_ids)}}")
-for r in results:
-    print(f"  {{r['id']}}: exists={{r['exists']}}")
-```
-
-After running this, evaluate each skill's impact on the outcome and include them in your \
-`skill_tags` output field:
-- `"helpful"` — skill contributed to correct reasoning or answer
-- `"harmful"` — skill caused or contributed to an error
-- `"neutral"` — skill was cited but didn't materially affect the outcome
-
-If no skills were cited, leave `skill_tags` empty.
-</skill_evaluation>
+Narrate what you observe — which strategies appear to have been covered, contradicted, or \
+missing from the injected set — so the SkillManager has context when deciding what to add, \
+update, remove, or tag. Do NOT prescribe mutations or classifications; that is the \
+SkillManager's job.
+</skillbook_inspection>
 """
 
 

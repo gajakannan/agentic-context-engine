@@ -344,32 +344,12 @@ Score each extracted learning (0-100%):
 - **Poor (40-70%)**: Too compound, needs splitting
 - **Rejected (<40%)**: Too vague or compound
 
-## TAGGING CRITERIA
-
-### MANDATORY Tag Assignments
-
-**"helpful"** - Apply when:
-- Strategy directly led to correct answer
-- Approach improved reasoning quality by >20%
-- Method proved reusable across similar problems
-
-**"harmful"** - Apply when:
-- Strategy caused incorrect answer
-- Approach created confusion or errors
-- Method led to error propagation
-
-**"neutral"** - Apply when:
-- Strategy referenced but not determinative
-- Correct strategy with execution error
-- Partial applicability (<50% relevant)
-
 ## CRITICAL REQUIREMENTS
 
 ### MANDATORY Include
 - Specific error identification with line/step numbers
 - Root cause analysis beyond surface symptoms
 - Actionable corrections with concrete examples
-- Evidence-based skill tagging with justification
 - Atomicity scores for extracted learnings
 
 ### FORBIDDEN Phrases
@@ -388,47 +368,20 @@ CRITICAL: Return ONLY valid JSON:
   "error_identification": "<specific error or 'none' if correct>",
   "root_cause_analysis": "<underlying reason for error or success>",
   "correct_approach": "<detailed correct method with example>",
-  "key_insight": "<most valuable reusable learning>",
-  "skill_tags": [
-    {{
-      "id": "<skill-id>",
-      "tag": "helpful|harmful|neutral"
-    }}
-  ]
+  "key_insight": "<most valuable reusable learning>"
 }}
 
 ## GOOD Analysis Example
 
 {{
-  "reasoning": "1. Agent attempted 15x24 using decomposition. 2. Correctly identified skill_023. 3. ERROR at step 3: Calculated 15x20=310 instead of 300.",
+  "reasoning": "1. Agent attempted 15x24 using decomposition. 2. ERROR at step 3: Calculated 15x20=310 instead of 300.",
   "error_identification": "Arithmetic error in multiplication at step 3 of reasoning chain",
   "root_cause_analysis": "Multiplication error: 15x2=30, so 15x20=300, not 310",
   "correct_approach": "15x24 = 15x20 + 15x4 = 300 + 60 = 360",
-  "key_insight": "Double-check multiplications involving tens",
-  "skill_tags": [
-    {{
-      "id": "skill_023",
-      "tag": "neutral"
-    }}
-  ]
+  "key_insight": "Double-check multiplications involving tens"
 }}
 
 MANDATORY: Begin response with `{{` and end with `}}`
-"""
-
-REFLECTOR_SKILL_EVAL_SECTION = """\
-## SKILL EFFECTIVENESS EVALUATION (Online Mode)
-
-The agent cited skillbook strategies in its reasoning. You MUST evaluate each cited skill:
-
-1. **Verify existence**: Confirm the cited skill ID appears in the "Strategies Applied" section above. If the agent cited a skill that doesn't exist, flag it.
-2. **Evaluate impact**: For each verified skill, determine whether it:
-   - **helped** — the skill directly contributed to reaching the correct answer or improving reasoning quality
-   - **harmed** — the skill caused an error, led the agent astray, or produced an incorrect result
-   - **neutral** — the skill was cited but did not materially affect the outcome
-3. **Populate `skill_tags`**: Include ALL cited skills in your `skill_tags` output with their classification.
-
-Be specific in your reasoning about WHY each skill helped or harmed — don't just label them.\
 """
 
 

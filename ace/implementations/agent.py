@@ -16,7 +16,7 @@ from ..core.context import SkillbookView
 from ..core.outputs import AgentOutput
 from ..core.skillbook import Skillbook
 from ..providers.pydantic_ai import resolve_model
-from .helpers import extract_cited_skill_ids, format_optional
+from .helpers import format_optional
 from .prompts import AGENT_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -101,7 +101,6 @@ class Agent:
 
         result = self._agent.run_sync(prompt)
         output = result.output
-        output.skill_ids = extract_cited_skill_ids(output.reasoning)
         output.raw = _extract_usage(result)
         return output
 
