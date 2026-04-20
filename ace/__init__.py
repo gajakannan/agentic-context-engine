@@ -32,7 +32,8 @@ if TYPE_CHECKING:
     from .integrations import wrap_skillbook_context
     from .protocols import DeduplicationConfig
     from .providers import ACEModelConfig, ModelConfig
-    from .steps.rr import RRConfig, RRStep
+    from .steps.rr_step import RRConfig, RRStep
+    from .tracing import configure as configure_tracing
     from .runners import (
         ACE,
         ACELiteLLM,
@@ -117,6 +118,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     # Recursive Reflector
     "RRStep": ("ace.steps.rr_step", "RRStep"),
     "RRConfig": ("ace.steps.rr_step", "RRConfig"),
+    # Tracing
+    "configure_tracing": ("ace.tracing", "configure"),
 }
 
 
@@ -190,6 +193,8 @@ __all__ = [
     "DeduplicationConfig",
     "DeduplicationManager",
     "SimilarityDetector",
+    # Tracing
+    "configure_tracing",
     # Utilities
     "wrap_skillbook_context",
 ]
