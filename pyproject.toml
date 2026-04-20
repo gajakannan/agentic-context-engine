@@ -39,6 +39,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "click>=8.1.0",
     "litellm>=1.83.0",
     "pydantic>=2.0.0",
     "pydantic-ai-slim[litellm]>=0.0.36",
@@ -101,11 +102,9 @@ all = [
     "torch>=2.0.0",
     "accelerate>=0.20.0",
     "kayba-tracing>=0.9.4",
-    "click>=8.1.0",
     "requests>=2.31.0",
 ]
 cloud = [
-    "click>=8.1.0",
     "requests>=2.31.0",
     "questionary>=2.0.0",
 ]
