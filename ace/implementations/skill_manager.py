@@ -123,6 +123,7 @@ class SkillManager(RecursiveAgent):
                 "search_skills",
                 "read_skill",
             ),
+            span_label="sm",
         )
 
     def update_skills(

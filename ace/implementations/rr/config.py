@@ -14,3 +14,5 @@ class RecursiveConfig(AgenticConfig):
     """
 
     max_output_chars: int = 50_000
+    cache_prompts: bool = False
+    cache_ttl: str = "5m"

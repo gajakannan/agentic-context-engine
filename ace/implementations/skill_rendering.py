@@ -95,8 +95,10 @@ def retrieve_top_k(
     # Embed the query
     query_embedding = detector.compute_embedding(query)
     if query_embedding is None:
-        logger.warning("Failed to embed query; returning all active skills")
-        return skillbook.skills()[:top_k]
+        raise RuntimeError(
+            "Failed to embed retrieval query — "
+            "check embedding provider credentials / network."
+        )
 
     # Score each skill
     scored: list[tuple[float, Skill]] = []

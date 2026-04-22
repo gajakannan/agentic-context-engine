@@ -419,6 +419,7 @@ async def run_agent_with_compaction(
     compaction_continuation: str = "",
     microcompact_placeholder: str = "[cleared — use tools to re-inspect if needed]",
     on_compaction: Callable[[AgenticDeps, int, list], None] | None = None,
+    span_label: str = "rr",
 ) -> tuple[Any, dict]:
     """Run a PydanticAI agent with two-tier compaction.
 
@@ -431,7 +432,9 @@ async def run_agent_with_compaction(
     cumulative_usage = None
     last_run: Any = None
 
-    span_name = "rr.session" if deps.depth == 0 else "rr.session.child"
+    span_name = (
+        f"{span_label}.session" if deps.depth == 0 else f"{span_label}.session.child"
+    )
     with _rr_span(span_name, depth=deps.depth):
         while True:
             try:
@@ -569,6 +572,7 @@ class RecursiveAgent:
         compaction_continuation: str = "",
         microcompact_placeholder: str = "[cleared — use tools to re-inspect if needed]",
         on_compaction: Callable[[AgenticDeps, int, list], None] | None = None,
+        span_label: str = "rr",
     ) -> None:
         self.config = config or AgenticConfig()
         self._model = model
@@ -581,6 +585,7 @@ class RecursiveAgent:
         self._compaction_continuation = compaction_continuation
         self._microcompact_placeholder = microcompact_placeholder
         self._on_compaction = on_compaction
+        self._span_label = span_label
 
         # Build root agent (depth=0)
         self._agent = self._create_agent(depth=0)
@@ -638,6 +643,7 @@ class RecursiveAgent:
                 compaction_continuation=self._compaction_continuation,
                 microcompact_placeholder=self._microcompact_placeholder,
                 on_compaction=self._on_compaction,
+                span_label=self._span_label,
             )
             return output, deps
         except BudgetExhausted:
@@ -679,6 +685,7 @@ class RecursiveAgent:
             compaction_continuation=self._compaction_continuation,
             microcompact_placeholder=self._microcompact_placeholder,
             on_compaction=self._on_compaction,
+            span_label=self._span_label,
         )
 
     # ------------------------------------------------------------------
