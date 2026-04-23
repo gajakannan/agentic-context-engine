@@ -56,5 +56,10 @@ def make_skillbook_excerpt(skillbook: "SkillbookLike", skill_ids: Sequence[str])
         skill = skillbook.get_skill(skill_id)
         if skill:
             seen.add(skill_id)
-            lines.append(f"[{skill.id}] {skill.content}")
+            excerpt = f"[{skill.id}] Issue: {skill.issue}"
+            if skill.insight:
+                excerpt += f" | Insight: {skill.insight}"
+            if skill.keywords:
+                excerpt += f" | Keywords: {', '.join(skill.keywords)}"
+            lines.append(excerpt)
     return "\n".join(lines)

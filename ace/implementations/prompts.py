@@ -396,10 +396,19 @@ is applied immediately; there is no staging or review stage after you return. \
 Take explicit, auditable actions.
 
 Key rules:
-- ONE concept per skill. Imperative voice ("Use X", "Avoid Y").
-- Preserve enumerated items when updating — do not strip lists or criteria.
+- Every skill belongs to exactly one pipeline-facing section: `context` or `harness`.
+- Fine-grained topic labels live in `keywords`, not in `section`.
+- Every ADD / UPDATE must include a concrete `issue`.
+- `context` skills require an `insight`; `harness` skills may omit it if there is \
+no reliable workaround yet.
+- Write `issue` as the problem plus applicability inline. Start narrow unless the \
+reflection clearly supports broader scope.
+- Choose 1-5 short stable keywords (domain, subsystem, API, behavior category).
 - Before ADD, call search_skills to check for near-duplicates. If a semantically \
-similar skill exists (>70%), prefer UPDATE.
+similar skill exists, prefer UPDATE.
+- If search_skills shows the same issue across multiple domains, UPDATE the existing \
+skill with a broader issue statement and refreshed keywords instead of adding another \
+duplicate.
 - Counters live on skills. Retrieve them via read_skill / search_skills. If a \
 skill's harmful_count reaches 3 or more while you are investigating it, REMOVE it.
 - You decide helpful / harmful / neutral for each skill in `injected_skill_ids` \
@@ -442,8 +451,9 @@ Skills rendered into the agent's prompt this run (tagging scope):
 gives you evidence that it helped, harmed, or was neutral. Call tag_skill accordingly. \
 Skip skills with no evidence.
 3. For genuinely novel patterns: call search_skills first. If no near-duplicate \
-exists (>70% similar), call add_skill with an imperative, atomic statement.
-4. For improvements to existing skills: call update_skill. Preserve enumerated items.
+exists, call add_skill with `section`, `issue`, `keywords`, and `insight` when needed.
+4. For improvements to existing skills: call update_skill with a rewritten `issue` \
+and updated `keywords`; include `insight` when the actionable guidance should change.
 5. For skills with harmful_count >= 3 encountered during investigation: call \
 remove_skill with a clear reason.
 6. When done, produce your structured output summarizing your reasoning.
@@ -451,6 +461,6 @@ remove_skill with a clear reason.
 
 <size_management>
 If stats show skillbook > 50 skills, prioritize UPDATE over ADD and look for \
-merge opportunities (>70% content overlap).
+merge opportunities around overlapping issue + insight pairs.
 </size_management>
 """

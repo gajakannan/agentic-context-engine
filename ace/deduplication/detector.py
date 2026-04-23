@@ -175,7 +175,7 @@ class SimilarityDetector:
         if not needs:
             return 0
 
-        texts = [s.content for s in needs]
+        texts = [s.embedding_text() for s in needs]
         embeddings = self.compute_embeddings_batch(texts)
 
         count = 0

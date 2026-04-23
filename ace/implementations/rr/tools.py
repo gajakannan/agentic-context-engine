@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 from pydantic_ai import ModelRetry, RunContext
 
 from ace.core.context import SkillbookView
-from ace.core.outputs import ReflectorOutput
 from ace.core.recursive_agent import AgenticDeps
 from ace.core.skillbook import Skillbook
 
@@ -21,7 +20,6 @@ if TYPE_CHECKING:
     from pydantic_ai import Agent as PydanticAgent
 
 from .config import RecursiveConfig
-
 
 # ------------------------------------------------------------------
 # Dependency container
@@ -54,15 +52,13 @@ def register_output_validator(agent: "PydanticAgent[RRDeps, Any]") -> None:
     """Register the standard output validator on any RR agent."""
 
     @agent.output_validator
-    def validate_output(
-        ctx: RunContext[RRDeps], output: ReflectorOutput
-    ) -> ReflectorOutput:
+    def validate_output(ctx: RunContext[RRDeps], output: Any) -> Any:
         """Ensure the agent explored data before concluding."""
         if ctx.deps.iteration < 1:
             raise ModelRetry(
                 "You haven't explored the data enough. "
                 "Use execute_code first, "
-                "then provide your final output."
+                "then provide your final native evidence summary."
             )
         return output
 
@@ -76,7 +72,7 @@ def register_read_skill(agent: "PydanticAgent[RRDeps, Any]") -> None:
 
     @agent.tool
     def read_skill(ctx: RunContext[RRDeps], skill_id: str) -> dict[str, Any]:
-        """Look up a skill by ID. Returns content, section, and counters."""
+        """Look up a skill by ID."""
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
@@ -86,12 +82,15 @@ def register_read_skill(agent: "PydanticAgent[RRDeps, Any]") -> None:
         return {
             "id": skill.id,
             "section": skill.section,
-            "content": skill.content,
-            "status": skill.status,
+            "keywords": list(skill.keywords),
+            "issue": skill.issue,
+            "insight": skill.insight,
+            "active": skill.active,
             "used_count": skill.used_count,
             "helpful_count": skill.helpful_count,
             "harmful_count": skill.harmful_count,
             "neutral_count": skill.neutral_count,
+            "occurrences": [source.to_dict() for source in skill.occurrences],
         }
 
 
@@ -119,7 +118,10 @@ def register_search_skillbook(agent: "PydanticAgent[RRDeps, Any]") -> None:
             {
                 "id": s.id,
                 "section": s.section,
-                "content": s.content,
+                "keywords": list(s.keywords),
+                "issue": s.issue,
+                "insight": s.insight,
+                "active": s.active,
                 "used_count": s.used_count,
                 "helpful_count": s.helpful_count,
                 "harmful_count": s.harmful_count,

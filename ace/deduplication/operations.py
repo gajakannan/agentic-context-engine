@@ -110,7 +110,10 @@ def _apply_merge(op: MergeOp, skillbook: "Skillbook") -> None:
         logger.info("MERGE: Soft-deleted %s into %s", source_id, op.keep_id)
 
     if op.merged_content:
-        keep_skill.content = op.merged_content
+        if keep_skill.section == "context":
+            keep_skill.insight = op.merged_content
+        else:
+            keep_skill.issue = op.merged_content
 
     keep_skill.embedding = None
     keep_skill.updated_at = datetime.now(timezone.utc).isoformat()
@@ -150,7 +153,10 @@ def _apply_update(op: UpdateOp, skillbook: "Skillbook") -> None:
     if skill is None:
         logger.warning("UPDATE: Skill %s not found", op.skill_id)
         return
-    skill.content = op.new_content
+    if skill.section == "context":
+        skill.insight = op.new_content
+    else:
+        skill.issue = op.new_content
     skill.embedding = None
     skill.updated_at = datetime.now(timezone.utc).isoformat()
     logger.info("UPDATE: Updated content of %s", op.skill_id)

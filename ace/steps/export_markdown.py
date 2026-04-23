@@ -38,16 +38,22 @@ class ExportSkillbookMarkdownStep:
             lines.append(f"## {section}")
             lines.append("")
             for skill in by_section[section]:
-                tags = f"helpful={skill.helpful}, harmful={skill.harmful}, neutral={skill.neutral}"
+                tags = (
+                    f"helpful={skill.helpful_count}, "
+                    f"harmful={skill.harmful_count}, "
+                    f"neutral={skill.neutral_count}"
+                )
                 lines.append(f"### `{skill.id}`")
                 lines.append("")
-                lines.append(skill.content)
+                lines.append(f"**Keywords:** {', '.join(skill.keywords)}")
                 lines.append("")
-                if skill.justification:
-                    lines.append(f"**Justification:** {skill.justification}")
+                lines.append(f"**Issue:** {skill.issue}")
+                lines.append("")
+                if skill.insight:
+                    lines.append(f"**Insight:** {skill.insight}")
                     lines.append("")
-                if skill.evidence:
-                    lines.append(f"**Evidence:** {skill.evidence}")
+                if skill.occurrences:
+                    lines.append(f"**Occurrences:** {len(skill.occurrences)}")
                     lines.append("")
                 lines.append(f"*Tags: {tags}*")
                 lines.append("")

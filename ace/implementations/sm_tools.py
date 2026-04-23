@@ -2,7 +2,7 @@
 
 The agentic SkillManager operates on the real :class:`Skillbook` via
 atomic mutation tools (ADD / UPDATE / REMOVE / TAG) and read-only
-inspection tools (search / read). Tools apply changes directly — there
+inspection tools (search / read). Tools apply changes directly; there
 is no staging. Each mutation appends an ``UpdateOperation`` to
 ``deps.operations`` so the caller can recover an audit trail after the
 run.
@@ -14,10 +14,11 @@ Generic tools (``execute_code``, ``recurse``) are provided by
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
 
 from pydantic_ai import RunContext
 
+from ace.core.insight_source import InsightSource
 from ace.core.recursive_agent import AgenticDeps
 from ace.core.skillbook import Skillbook, UpdateOperation
 
@@ -32,16 +33,47 @@ if TYPE_CHECKING:
 
 @dataclass
 class SMDeps(AgenticDeps):
-    """Dependencies injected into SkillManager tool calls via ``RunContext``.
-
-    ``skillbook`` is the real :class:`Skillbook` — tools mutate it
-    directly. ``operations`` is the audit trail appended by each
-    mutation tool; the caller reads it after the run to build
-    ``SkillManagerOutput``.
-    """
+    """Dependencies injected into SkillManager tool calls via ``RunContext``."""
 
     skillbook: Optional[Skillbook] = None
-    operations: List[UpdateOperation] = field(default_factory=list)
+    operations: list[UpdateOperation] = field(default_factory=list)
+    current_source: Optional[InsightSource] = None
+
+
+def _normalize_keywords(keywords: Iterable[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        text = str(keyword).strip().lower().replace(" ", "_")
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return normalized
+
+
+def _derive_operation_source(
+    base: InsightSource | None,
+    *,
+    operation_type: str,
+    issue: str | None = None,
+    insight: str | None = None,
+    reason: str | None = None,
+) -> InsightSource | None:
+    if base is None:
+        return None
+    return InsightSource(
+        trace_uid=base.trace_uid,
+        source_system=base.source_system,
+        trace_id=base.trace_id,
+        display_name=base.display_name,
+        relation=base.relation,
+        sample_question=base.sample_question,
+        epoch=base.epoch,
+        operation_type=operation_type,
+        error_identification=issue or base.error_identification,
+        learning_text=insight or reason or base.learning_text,
+    )
 
 
 # ------------------------------------------------------------------
@@ -50,73 +82,76 @@ class SMDeps(AgenticDeps):
 
 
 def register_add_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``add_skill`` — ADD a new skill to the skillbook."""
+    """Register ``add_skill``."""
 
     @agent.tool
     def add_skill(
         ctx: RunContext[SMDeps],
         section: str,
-        content: str,
-        justification: str = "",
-        evidence: str = "",
+        issue: str,
+        keywords: list[str],
+        insight: str | None = None,
     ) -> dict[str, Any]:
-        """Add a new skill to the skillbook.
-
-        Args:
-            section: Target section (e.g. ``"general"``).
-            content: The skill content, in imperative voice.
-            justification: Why this skill is worth keeping.
-            evidence: Concrete trace evidence motivating the add.
-
-        Returns:
-            The new skill's ID plus confirmation.
-        """
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
+        normalized_keywords = _normalize_keywords(keywords)
+        op_source = _derive_operation_source(
+            ctx.deps.current_source,
+            operation_type="ADD",
+            issue=issue,
+            insight=insight,
+        )
         skill = sb.add_skill(
             section=section,
-            content=content,
-            justification=justification or None,
-            evidence=evidence or None,
+            issue=issue,
+            keywords=normalized_keywords,
+            insight=insight,
+            insight_source=op_source,
         )
         ctx.deps.operations.append(
             UpdateOperation(
                 type="ADD",
-                section=section,
-                content=content,
+                section=skill.section,
+                issue=issue,
+                keywords=normalized_keywords,
+                insight=insight,
                 skill_id=skill.id,
-                justification=justification or None,
-                evidence=evidence or None,
+                insight_source=op_source,
             )
         )
         return {"ok": True, "skill_id": skill.id}
 
 
 def register_update_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``update_skill`` — UPDATE an existing skill's content."""
+    """Register ``update_skill``."""
 
     @agent.tool
     def update_skill(
         ctx: RunContext[SMDeps],
         skill_id: str,
-        content: Optional[str] = None,
-        justification: Optional[str] = None,
-        evidence: Optional[str] = None,
+        issue: str,
+        keywords: list[str] | None = None,
+        insight: str | None = None,
     ) -> dict[str, Any]:
-        """Update an existing skill's content, justification, or evidence.
-
-        Preserve enumerated items on content updates — do not strip
-        lists or criteria.
-        """
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
+        normalized_keywords = (
+            _normalize_keywords(keywords) if keywords is not None else None
+        )
+        op_source = _derive_operation_source(
+            ctx.deps.current_source,
+            operation_type="UPDATE",
+            issue=issue,
+            insight=insight,
+        )
         skill = sb.update_skill(
             skill_id,
-            content=content,
-            justification=justification,
-            evidence=evidence,
+            issue=issue,
+            keywords=normalized_keywords if normalized_keywords is not None else None,
+            insight=insight,
+            insight_source=op_source,
         )
         if skill is None:
             return {"error": f"skill not found: {skill_id}"}
@@ -125,16 +160,17 @@ def register_update_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
                 type="UPDATE",
                 section=skill.section,
                 skill_id=skill_id,
-                content=content,
-                justification=justification,
-                evidence=evidence,
+                issue=issue,
+                keywords=normalized_keywords or [],
+                insight=insight,
+                insight_source=op_source,
             )
         )
         return {"ok": True, "skill_id": skill_id}
 
 
 def register_remove_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``remove_skill`` — REMOVE a skill from the skillbook."""
+    """Register ``remove_skill``."""
 
     @agent.tool
     def remove_skill(
@@ -142,33 +178,33 @@ def register_remove_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
         skill_id: str,
         reason: str,
     ) -> dict[str, Any]:
-        """Remove a skill. Use when a skill is harmful, duplicated, or vague.
-
-        Args:
-            skill_id: ID of the skill to remove.
-            reason: One-sentence justification recorded in the audit log.
-        """
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
         skill = sb.get_skill(skill_id)
         if skill is None:
             return {"error": f"skill not found: {skill_id}"}
-        section = skill.section
-        sb.remove_skill(skill_id)
+        op_source = _derive_operation_source(
+            ctx.deps.current_source,
+            operation_type="REMOVE",
+            issue=skill.issue,
+            reason=reason,
+        )
+        sb.remove_skill(skill_id, insight_source=op_source)
         ctx.deps.operations.append(
             UpdateOperation(
                 type="REMOVE",
-                section=section,
+                section=skill.section,
                 skill_id=skill_id,
-                justification=reason,
+                reason=reason,
+                insight_source=op_source,
             )
         )
         return {"ok": True, "skill_id": skill_id}
 
 
 def register_tag_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``tag_skill`` — record an effectiveness observation."""
+    """Register ``tag_skill``."""
 
     @agent.tool
     def tag_skill(
@@ -176,16 +212,19 @@ def register_tag_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
         skill_id: str,
         delta: Literal[1, -1, 0],
     ) -> dict[str, Any]:
-        """Bump a skill's effectiveness counter.
-
-        ``+1`` → helpful_count, ``-1`` → harmful_count, ``0`` → neutral_count.
-        Use against each injected skill based on whether it helped, harmed,
-        or had no material effect on the outcome.
-        """
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
-        skill = sb.tag_skill(skill_id, delta)
+        existing = sb.get_skill(skill_id)
+        if existing is None:
+            return {"error": f"skill not found: {skill_id}"}
+        op_source = _derive_operation_source(
+            ctx.deps.current_source,
+            operation_type="TAG",
+            issue=existing.issue,
+            reason=f"effectiveness_delta={int(delta)}",
+        )
+        skill = sb.tag_skill(skill_id, delta, insight_source=op_source)
         if skill is None:
             return {"error": f"skill not found: {skill_id}"}
         ctx.deps.operations.append(
@@ -194,6 +233,7 @@ def register_tag_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
                 section=skill.section,
                 skill_id=skill_id,
                 metadata={"delta": int(delta)},
+                insight_source=op_source,
             )
         )
         return {
@@ -211,11 +251,10 @@ def register_tag_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
 
 
 def register_sm_read_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``read_skill`` — return the full skill payload by ID."""
+    """Register ``read_skill``."""
 
     @agent.tool
     def read_skill(ctx: RunContext[SMDeps], skill_id: str) -> dict[str, Any]:
-        """Look up a skill by ID. Returns content, section, and counters."""
         sb = ctx.deps.skillbook
         if sb is None:
             return {"error": "skillbook unavailable"}
@@ -225,46 +264,53 @@ def register_sm_read_skill(agent: "PydanticAgent[SMDeps, Any]") -> None:
         return {
             "id": skill.id,
             "section": skill.section,
-            "content": skill.content,
-            "status": skill.status,
+            "keywords": list(skill.keywords),
+            "issue": skill.issue,
+            "insight": skill.insight,
+            "active": skill.active,
             "used_count": skill.used_count,
             "helpful_count": skill.helpful_count,
             "harmful_count": skill.harmful_count,
             "neutral_count": skill.neutral_count,
-            "justification": skill.justification,
-            "evidence": skill.evidence,
+            "occurrences": [source.to_dict() for source in skill.occurrences],
         }
 
 
 def register_sm_search_skills(agent: "PydanticAgent[SMDeps, Any]") -> None:
-    """Register ``search_skills`` — top-k skills by embedding similarity."""
+    """Register ``search_skills``."""
 
     @agent.tool
     def search_skills(
         ctx: RunContext[SMDeps],
         query: str,
         top_k: int = 5,
+        section: str | None = None,
+        keywords: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve skills most relevant to a natural-language query.
-
-        Use this before ADD to check for near-duplicates, and to discover
-        which existing skills a reflection might be refining.
-        """
         sb = ctx.deps.skillbook
         if sb is None:
             return [{"error": "skillbook unavailable"}]
         from ace.implementations.skill_rendering import retrieve_top_k
 
-        results = retrieve_top_k(sb, query, top_k=top_k)
+        results = retrieve_top_k(
+            sb,
+            query,
+            top_k=top_k,
+            section=section,
+            keywords=keywords,
+        )
         return [
             {
-                "id": s.id,
-                "section": s.section,
-                "content": s.content,
-                "used_count": s.used_count,
-                "helpful_count": s.helpful_count,
-                "harmful_count": s.harmful_count,
-                "neutral_count": s.neutral_count,
+                "id": skill.id,
+                "section": skill.section,
+                "keywords": list(skill.keywords),
+                "issue": skill.issue,
+                "insight": skill.insight,
+                "active": skill.active,
+                "used_count": skill.used_count,
+                "helpful_count": skill.helpful_count,
+                "harmful_count": skill.harmful_count,
+                "neutral_count": skill.neutral_count,
             }
-            for s in results
+            for skill in results
         ]

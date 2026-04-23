@@ -24,6 +24,7 @@ from pydantic_ai.models import Model as PydanticModel
 from pydantic_ai.settings import ModelSettings
 
 from ..core.context import SkillbookView
+from ..core.insight_source import InsightSource
 from ..core.outputs import SkillManagerOutput
 from ..core.recursive_agent import AgenticConfig, BudgetExhausted, RecursiveAgent
 from ..core.skillbook import Skillbook, UpdateBatch
@@ -52,9 +53,7 @@ class SkillManagerReport(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    reasoning: str = Field(
-        ..., description="Summary of the actions you took and why."
-    )
+    reasoning: str = Field(..., description="Summary of the actions you took and why.")
 
 
 class SkillManager(RecursiveAgent):
@@ -133,6 +132,7 @@ class SkillManager(RecursiveAgent):
         skillbook: Union[SkillbookView, Skillbook],
         question_context: str,
         progress: str,
+        source: InsightSource,
         injected_skill_ids: tuple[str, ...] = (),
         **kwargs: Any,
     ) -> SkillManagerOutput:
@@ -149,6 +149,7 @@ class SkillManager(RecursiveAgent):
                 apply changes; a view raises ``TypeError``.
             question_context: Description of the task domain.
             progress: Current progress summary (e.g. ``"5/10 correct"``).
+            source: Base provenance record for the current learning trace.
             injected_skill_ids: Skills rendered into the Agent's prompt
                 this run — the tagging scope surfaced to the agent.
             **kwargs: Accepted for protocol compatibility but not
@@ -191,6 +192,7 @@ class SkillManager(RecursiveAgent):
             depth=0,
             max_depth=self.config.max_depth,
             skillbook=skillbook,
+            current_source=source,
         )
 
         try:

@@ -28,7 +28,10 @@ class TestSkillbookCRUD:
     def test_add_and_get_skill(self):
         sb = Skillbook()
         skill = sb.add_skill("math", "Use division for fractions")
-        assert skill.section == "math"
+        assert skill.section == "context"
+        assert skill.keywords == ["math"]
+        assert skill.issue == "Use division for fractions"
+        assert skill.insight == "Use division for fractions"
         assert skill.content == "Use division for fractions"
         assert sb.get_skill(skill.id) is skill
 
@@ -52,14 +55,14 @@ class TestSkillbookCRUD:
     def test_remove_skill_hard(self):
         sb = Skillbook()
         skill = sb.add_skill("math", "content")
-        sb.remove_skill(skill.id)
+        sb.remove_skill(skill.id, soft=False)
         assert sb.get_skill(skill.id) is None
         assert len(sb.skills()) == 0
 
     def test_remove_skill_soft(self):
         sb = Skillbook()
         skill = sb.add_skill("math", "content")
-        sb.remove_skill(skill.id, soft=True)
+        sb.remove_skill(skill.id)
         assert sb.get_skill(skill.id) is not None
         assert skill.status == "invalid"
         assert len(sb.skills()) == 0  # active only
@@ -81,8 +84,8 @@ class TestSkillbookCRUD:
         s1 = sb.add_skill("math", "a")
         s2 = sb.add_skill("math", "b")
         assert s1.id != s2.id
-        assert "math" in s1.id
-        assert "math" in s2.id
+        assert s1.id.startswith("context-")
+        assert s2.id.startswith("context-")
 
 
 # ------------------------------------------------------------------ #
@@ -127,33 +130,31 @@ class TestSkillbookSerialization:
             Skillbook.loads("not json")
 
     def test_from_dict_malformed_sections(self):
-        """Malformed sections (string instead of list) should not crash.
-
-        The code iterates the value — a string is iterable so each char
-        becomes an entry.  This is a known quirk (review item #7).
-        """
+        """v2 loads require an explicit schema version."""
         payload = {
             "skills": {},
             "sections": {"bad": "not-a-list"},
             "next_id": 0,
         }
-        sb = Skillbook.from_dict(payload)
-        # String is iterable, so list("not-a-list") = ['n','o','t',...]
-        assert isinstance(sb._sections.get("bad"), list)
+        with pytest.raises(ValueError, match="Skillbook format v2 required"):
+            Skillbook.from_dict(payload)
 
     def test_from_dict_missing_fields(self):
         """Missing optional fields should use defaults."""
         payload = {
+            "schema_version": "2",
             "skills": {
                 "s1": {
                     "id": "s1",
-                    "section": "a",
-                    "content": "x",
+                    "section": "context",
+                    "keywords": ["math"],
+                    "issue": "x",
+                    "insight": "x",
                     "created_at": "2025-01-01T00:00:00",
                     "updated_at": "2025-01-01T00:00:00",
                 }
             },
-            "sections": {"a": ["s1"]},
+            "sections": {"context": ["s1"]},
         }
         sb = Skillbook.from_dict(payload)
         skill = sb.get_skill("s1")
@@ -323,7 +324,9 @@ class TestSkillbookUpdates:
             ],
         )
         sb.apply_update(batch)
-        assert sb.get_skill("math-001") is None
+        skill = sb.get_skill("math-001")
+        assert skill is not None
+        assert skill.active is False
 
     def test_apply_update_missing_skill_id(self):
         """UPDATE/TAG/REMOVE without skill_id should be skipped silently."""
