@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import json as _json
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
+from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.models import Model as PydanticModel
+from pydantic_ai.output import PromptedOutput
 from pydantic_ai.settings import ModelSettings
 
 from ace.core.context import ACEStepContext
@@ -26,6 +28,8 @@ from ace.implementations.rr.prompts import (
     COMPACTION_SUMMARY_PROMPT,
     REFLECTOR_RECURSIVE_PROMPT,
     REFLECTOR_RECURSIVE_SYSTEM,
+    REFLECTOR_SYNTHESIS_PROMPT,
+    REFLECTOR_SYNTHESIS_SYSTEM,
     RR_SKILLBOOK_INSPECTION_SECTION,
 )
 from ace.implementations.rr.tools import (
@@ -80,7 +84,7 @@ class RRStep(RecursiveAgent):
 
         super().__init__(
             model,
-            output_type=ReflectorOutput,
+            output_type=str,
             system_prompt=REFLECTOR_RECURSIVE_SYSTEM,
             config=config or RRConfig(),
             model_settings=model_settings,
@@ -101,6 +105,14 @@ class RRStep(RecursiveAgent):
                 "use execute_code to re-inspect]"
             ),
             on_compaction=RecursiveAgent.on_compaction,
+        )
+        self._synthesis_agent = PydanticAgent(
+            self._agent.model,
+            output_type=cast(Any, PromptedOutput(ReflectorOutput)),
+            system_prompt=REFLECTOR_SYNTHESIS_SYSTEM,
+            retries=3,
+            model_settings=model_settings,
+            defer_model_check=True,
         )
 
     # ------------------------------------------------------------------
@@ -217,13 +229,20 @@ class RRStep(RecursiveAgent):
             prompt_payload = [initial_prompt, CachePoint(ttl=self.config.cache_ttl)]
 
         try:
-            output, metadata = self.run(
+            evidence_summary, metadata = self.run(
                 deps=deps,
                 prompt=prompt_payload,
                 remaining_tokens=remaining,
             )
+            output = self._synthesize_reflection(
+                question=question,
+                feedback=feedback,
+                evidence_summary=evidence_summary,
+            )
             output.raw = {
                 **output.raw,
+                "evidence_summary": evidence_summary,
+                "evidence_usage": metadata.get("usage", {}),
                 **metadata,
                 "rr_trace": {
                     "total_iterations": deps.iteration,
@@ -251,6 +270,33 @@ class RRStep(RecursiveAgent):
                 question, agent_output, ground_truth, feedback, deps
             )
 
+        return output
+
+    def _synthesize_reflection(
+        self,
+        *,
+        question: str,
+        feedback: Optional[str],
+        evidence_summary: str,
+    ) -> ReflectorOutput:
+        """Convert the native evidence summary into the final structured output."""
+        prompt = REFLECTOR_SYNTHESIS_PROMPT.format(
+            question=question or "(missing question)",
+            feedback=feedback or "(none)",
+            evidence_summary=evidence_summary or "(empty evidence summary)",
+        )
+        result = self._synthesis_agent.run_sync(prompt)
+        output = result.output
+        usage = result.usage()
+        output.raw = {
+            **output.raw,
+            "synthesis_usage": {
+                "input_tokens": usage.input_tokens or 0,
+                "output_tokens": usage.output_tokens or 0,
+                "total_tokens": usage.total_tokens or 0,
+                "requests": usage.requests or 0,
+            },
+        }
         return output
 
     def _build_budget_exhausted_output(

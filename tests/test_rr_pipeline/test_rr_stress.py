@@ -56,13 +56,14 @@ def _mock_compaction_result(
     key_insight: str = "insight",
     correct_approach: str = "approach",
     timed_out: bool = False,
-) -> tuple[ReflectorOutput, dict]:
+) -> tuple[str, dict]:
     """Create a mock return value for run_agent_sync."""
-    output = ReflectorOutput(
-        reasoning=reasoning,
-        key_insight=key_insight,
-        correct_approach=correct_approach,
-        raw={},
+    output = (
+        f"## reasoning\n{reasoning}\n\n"
+        f"## error_identification\nnone\n\n"
+        f"## root_cause_analysis\nmock root cause\n\n"
+        f"## correct_approach\n{correct_approach}\n\n"
+        f"## key_insight\n{key_insight}\n"
     )
     metadata = {
         "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150, "requests": 3},
@@ -85,9 +86,18 @@ class TestLoopLifecycle:
     def test_successful_reflection(self):
         """Happy path: PydanticAI agent produces valid ReflectorOutput."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result(key_insight="insight")
+        evidence_summary, metadata = _mock_compaction_result(key_insight="insight")
+        synthesized = ReflectorOutput(
+            reasoning="done",
+            key_insight="insight",
+            correct_approach="approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result_ctx = rr(
                 _make_ctx(
                     question="What is 2+2?",
@@ -107,12 +117,21 @@ class TestLoopLifecycle:
             config=RRConfig(max_requests=3),
         )
 
-        output, metadata = _mock_compaction_result(
+        evidence_summary, metadata = _mock_compaction_result(
             reasoning="Analysis reached budget limit.",
             timed_out=True,
         )
+        synthesized = ReflectorOutput(
+            reasoning="Analysis reached budget limit.",
+            key_insight="insight",
+            correct_approach="approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result_ctx = rr(_make_ctx())
 
         assert len(result_ctx.reflections) == 1
@@ -146,9 +165,18 @@ class TestLoopLifecycle:
     def test_rr_trace_metadata_on_success(self):
         """Successful reflection populates rr_trace metadata."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result()
+        evidence_summary, metadata = _mock_compaction_result()
+        synthesized = ReflectorOutput(
+            reasoning="done",
+            key_insight="insight",
+            correct_approach="approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result_ctx = rr(_make_ctx())
 
         result = result_ctx.reflections[0]
@@ -297,7 +325,13 @@ class TestEntryPoints:
     def test_call_produces_reflection(self):
         """__call__() produces a ReflectorOutput on the context."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result(key_insight="insight")
+        evidence_summary, metadata = _mock_compaction_result(key_insight="insight")
+        synthesized = ReflectorOutput(
+            reasoning="done",
+            key_insight="insight",
+            correct_approach="approach",
+            raw={},
+        )
 
         traces = {
             "question": "q",
@@ -307,7 +341,10 @@ class TestEntryPoints:
         }
         ctx = ACEStepContext(trace=traces, skillbook=SkillbookView(Skillbook()))
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result_ctx = rr(ctx)
 
         assert isinstance(result_ctx.reflections[0], ReflectorOutput)
@@ -316,9 +353,18 @@ class TestEntryPoints:
     def test_reflect_method_works(self):
         """reflect() works as ReflectorLike entry point."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result(key_insight="reflected")
+        evidence_summary, metadata = _mock_compaction_result(key_insight="reflected")
+        synthesized = ReflectorOutput(
+            reasoning="done",
+            key_insight="reflected",
+            correct_approach="approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),

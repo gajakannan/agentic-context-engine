@@ -48,13 +48,14 @@ def _mock_compaction_result(
     reasoning: str = "mock reasoning",
     key_insight: str = "mock insight",
     correct_approach: str = "mock approach",
-) -> tuple[ReflectorOutput, dict]:
+) -> tuple[str, dict]:
     """Create a mock return value for run_agent_sync."""
-    output = ReflectorOutput(
-        reasoning=reasoning,
-        key_insight=key_insight,
-        correct_approach=correct_approach,
-        raw={},
+    output = (
+        f"## reasoning\n{reasoning}\n\n"
+        f"## error_identification\nnone\n\n"
+        f"## root_cause_analysis\nmock root cause\n\n"
+        f"## correct_approach\n{correct_approach}\n\n"
+        f"## key_insight\n{key_insight}\n"
     )
     metadata = {
         "usage": {
@@ -91,9 +92,18 @@ class TestRRStep:
         """RRStep.__call__ populates ctx.reflections."""
         rr = RRStep("test-model", config=RRConfig())
 
-        output, metadata = _mock_compaction_result(key_insight="step test")
+        evidence_summary, metadata = _mock_compaction_result(key_insight="step test")
+        synthesized = ReflectorOutput(
+            reasoning="mock reasoning",
+            key_insight="step test",
+            correct_approach="mock approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             ctx = _make_ctx(
                 question="What is 2+2?",
                 answer="4",
@@ -110,9 +120,18 @@ class TestRRStep:
     def test_rr_trace_metadata_populated(self):
         """Successful reflection populates rr_trace in raw."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result()
+        evidence_summary, metadata = _mock_compaction_result()
+        synthesized = ReflectorOutput(
+            reasoning="mock reasoning",
+            key_insight="mock insight",
+            correct_approach="mock approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result_ctx = rr(_make_ctx())
 
         result = result_ctx.reflections[0]
@@ -177,9 +196,18 @@ class TestRRStepProtocol:
     def test_reflect_method(self):
         """reflect() delegates to the PydanticAI agent."""
         rr = RRStep("test-model", config=RRConfig())
-        output, metadata = _mock_compaction_result(key_insight="reflected")
+        evidence_summary, metadata = _mock_compaction_result(key_insight="reflected")
+        synthesized = ReflectorOutput(
+            reasoning="mock reasoning",
+            key_insight="reflected",
+            correct_approach="mock approach",
+            raw={},
+        )
 
-        with patch(_RUN_SYNC, return_value=(output, metadata)):
+        with (
+            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
+            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
+        ):
             result = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),
@@ -260,6 +288,15 @@ class TestMeteredModel:
         rr = RRStep("test-model", config=RRConfig())
 
         assert not isinstance(rr._agent.model, MeteredModel)
+
+    def test_rrstep_uses_text_then_prompted_output(self):
+        """RR should gather evidence as text, then synthesize structured output."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        assert rr._agent._output_schema.mode == "text"
+        assert rr._agent._output_schema.allows_text is True
+        assert rr._synthesis_agent._output_schema.mode == "prompted"
+        assert rr._synthesis_agent._output_schema.allows_text is True
 
     def test_prebuilt_model_and_callback_compose(self):
         """Pre-built Model + usage_callback both apply — meter wraps the instance."""
