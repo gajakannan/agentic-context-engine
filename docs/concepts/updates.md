@@ -6,9 +6,10 @@ The SkillManager communicates changes to the skillbook through **update operatio
 
 | Type | Description | Required Fields |
 |------|-------------|----------------|
-| `ADD` | Create a new skill | `section`, `content` |
-| `UPDATE` | Modify an existing skill's content | `skill_id`, `content` |
-| `REMOVE` | Delete a skill from the skillbook | `skill_id` |
+| `ADD` | Create a new skill | `section`, `issue`, `keywords` (`insight` required for `context`) |
+| `UPDATE` | Modify an existing skill | `skill_id`, `issue` |
+| `TAG` | Record whether a skill helped, harmed, or was neutral | `skill_id`, `metadata.delta` |
+| `REMOVE` | Soft-remove a skill from the active skillbook | `skill_id` |
 
 ## Examples
 
@@ -19,8 +20,10 @@ Adds a new strategy learned from experience:
 ```json
 {
   "type": "ADD",
-  "section": "Math Strategies",
-  "content": "Break complex problems into smaller steps before computing"
+  "section": "context",
+  "keywords": ["math", "decomposition"],
+  "issue": "Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.",
+  "insight": "Break complex problems into smaller steps before computing."
 }
 ```
 
@@ -31,8 +34,24 @@ Refines an existing strategy:
 ```json
 {
   "type": "UPDATE",
-  "skill_id": "math-00001",
-  "content": "Break complex problems into smaller steps. Verify each step before proceeding."
+  "skill_id": "context-00001",
+  "section": "context",
+  "keywords": ["math", "verification"],
+  "issue": "Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.",
+  "insight": "Break complex problems into smaller steps and verify each step before proceeding."
+}
+```
+
+### TAG
+
+Records whether a skill helped, harmed, or had no clear effect:
+
+```json
+{
+  "type": "TAG",
+  "section": "context",
+  "skill_id": "context-00001",
+  "metadata": {"delta": 1}
 }
 ```
 
@@ -43,7 +62,9 @@ Prunes a strategy that is consistently harmful:
 ```json
 {
   "type": "REMOVE",
-  "skill_id": "math-00003"
+  "section": "context",
+  "skill_id": "context-00003",
+  "reason": "The guidance is stale and now causes wrong tool choices."
 }
 ```
 
@@ -55,8 +76,14 @@ The SkillManager emits operations as an `UpdateBatch` — one or more operations
 from ace import UpdateOperation, UpdateBatch
 
 batch = UpdateBatch(operations=[
-    UpdateOperation(type="ADD", section="Debugging", content="Log inputs before errors"),
-    UpdateOperation(type="REMOVE", skill_id="debug-00003"),
+    UpdateOperation(
+        type="ADD",
+        section="context",
+        keywords=["debugging", "logging"],
+        issue="Input shape mismatches are hard to diagnose without request-level visibility.",
+        insight="Log the incoming payload before the failing transformation.",
+    ),
+    UpdateOperation(type="REMOVE", section="context", skill_id="context-00003"),
 ])
 
 skillbook.apply_update(batch)
@@ -72,26 +99,23 @@ provenance attach multiple trace sources to one learned skill.
 
 ## Skill Tagging
 
-Skill effectiveness is tracked by the **Reflector**, not the SkillManager. In online mode, the Reflector:
+Skill effectiveness is recorded through `TAG` operations. The SkillManager decides
+whether each injected skill helped, harmed, or had no material effect, and encodes
+that as `metadata.delta`:
 
-1. Scans the agent's reasoning for skill ID citations (e.g. `[general-00042]`)
-2. Verifies each cited skill exists in the skillbook
-3. Classifies each as `helpful`, `harmful`, or `neutral`
-4. Populates `skill_tags` on `ReflectorOutput`
-
-The SkillManager receives these tags and uses them to inform its operations — e.g., consistently harmful skills may be UPDATEd or REMOVEd.
-
-In offline mode (batch analysis of historical traces), skill tagging is skipped since traces may not contain skill citations.
+- `1` → increment `helpful_count`
+- `-1` → increment `harmful_count`
+- `0` → increment `neutral_count`
 
 ## How Updates Flow
 
 ```
-Agent cites skill_ids --> Reflector evaluates them (online) --> SkillManager emits ADD/UPDATE/REMOVE
+Agent cites or injects skill_ids --> Reflector analyzes outcome --> SkillManager emits ADD/UPDATE/TAG/REMOVE
 ```
 
 1. The **Agent** cites skill IDs it used in its reasoning
-2. The **Reflector** classifies each cited skill as helpful/harmful/neutral (`skill_tags`)
-3. The **SkillManager** uses the reflection analysis and skill tags to ADD new strategies, UPDATE existing ones, or REMOVE harmful ones
+2. The **Reflector** produces the analysis that the SkillManager learns from
+3. The **SkillManager** uses that analysis to ADD, UPDATE, TAG, or REMOVE skills
 
 ## What to Read Next
 

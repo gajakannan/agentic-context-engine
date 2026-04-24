@@ -705,6 +705,7 @@ output = sm.update_skills(
     skillbook=skillbook,               # real Skillbook — mutated in place
     question_context="Math problem solving",
     progress="5/10 correct",
+    source=source,
     injected_skill_ids=ctx.injected_skill_ids,
 )
 # skillbook has already been updated; `output` is the post-hoc audit log
@@ -714,11 +715,11 @@ output = sm.update_skills(
 
 | Tool | Kind | Purpose |
 |---|---|---|
-| `add_skill(section, content, justification?, evidence?)` | mutate | ADD a new skill |
-| `update_skill(skill_id, content?, justification?, evidence?)` | mutate | UPDATE an existing skill; preserves enumerated items |
+| `add_skill(section, issue, keywords, insight?)` | mutate | ADD a new skill |
+| `update_skill(skill_id, issue, keywords?, insight?)` | mutate | UPDATE an existing skill |
 | `remove_skill(skill_id, reason)` | mutate | REMOVE a skill (duplicate, vague, or `harmful_count ≥ 3`) |
 | `tag_skill(skill_id, delta)` | mutate | Bump `helpful_count` / `harmful_count` / `neutral_count` (+1 / -1 / 0) |
-| `search_skills(query, top_k)` | read | Embedding-similarity top-k lookup (check before ADD) |
+| `search_skills(query, top_k, section?, keywords?)` | read | Hybrid retrieval lookup (check before ADD) |
 | `read_skill(skill_id)` | read | Fetch full skill payload including counters |
 | `execute_code(code)` | read | Inherited sandbox tool for verification |
 
@@ -730,7 +731,7 @@ splices that list into the returned `SkillManagerOutput`.
 | Function | Purpose |
 |---|---|
 | `format_optional(value)` | Returns `"(none)"` for falsy values |
-| `make_skillbook_excerpt(skillbook, skill_ids)` | Builds `[id] content` lines for listed skills |
+| `make_skillbook_excerpt(skillbook, skill_ids)` | Builds issue / insight excerpts for listed skills |
 
 ### Prompt templates (`implementations/prompts.py`)
 

@@ -12,7 +12,10 @@ The Recursive Reflector replaces the single-pass `Reflector` with an iterative t
 
 - `RRStep` is a subclass of `RecursiveAgent` (`ace/core/recursive_agent.py`).
 - Satisfies both `StepProtocol` and `ReflectorLike` — usable as a pipeline step or a drop-in reflector replacement.
-- Uses a **PydanticAI agent** with typed tools and structured output (`ReflectorOutput`).
+- Uses a **two-stage PydanticAI flow**:
+  1. a tool-using evidence agent with `output_type=str`
+  2. a no-tool synthesis agent with `PromptedOutput(ReflectorOutput)`
+- This keeps the evidence-gathering pass in normal text mode and reserves the structured `ReflectorOutput` contract for the end.
 - Two-tier compaction (microcompaction + full summarization) handles context-window pressure.
 - Depth-based recursion via the `recurse` tool decomposes large/complex inputs.
 - PydanticAI's `UsageLimits` enforces token and request budgets.
@@ -89,9 +92,11 @@ RRStep(RecursiveAgent) (ace/steps/rr_step.py)
 
 | Tool | Signature | Defined in | Description |
 |------|-----------|------------|-------------|
-| `execute_code` | `(code: str) -> str` | `RecursiveAgent` | Run Python in the `TraceSandbox`. Variables persist across calls. Returns captured stdout/stderr. Raises `ModelRetry` on exceptions. |
+| `execute_code` | `(code: str) -> str` | `RecursiveAgent` | Run Python in the `TraceSandbox`. Variables persist across calls, so the tool is best used as a working memory for evidence-gathering: define variables, extract slices, compute checks, and verify contradictions. Tool output should stay terse and factual. It must not be used to print reflections, summaries, lessons, insights, analysis, or final synthesis; those belong in native assistant responses or `ReflectorOutput`, not in code. Raises `ModelRetry` on exceptions. |
 | `recurse` | `(prompt: str, context_code: str) -> str` | `RecursiveAgent` | Spawn a child session with its own sandbox. Child inherits data and helpers. Use `context_code` to prepare the child's data. Not available at max depth. |
-| `output_validator` | (on output) | `RRStep` | Ensures the agent has used `execute_code` at least once before producing final output. |
+| `output_validator` | (on output) | `RRStep` | Ensures the evidence pass has used `execute_code` at least once before producing its native evidence summary. |
+
+RR no longer relies on a single tool-capable structured-output agent. The evidence pass runs in plain text mode so the reflector can stop using tools and write a native summary; a second no-tool agent then converts that summary into `ReflectorOutput`.
 
 ### Dual Protocol Support
 

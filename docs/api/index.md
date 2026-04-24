@@ -188,9 +188,9 @@ sm_output = skill_manager.update_skills(
     skillbook=skillbook,
     question_context="Math problems",
     progress="3/5 correct",
+    source=source,
 )
-# Apply the updates
-skillbook.apply_update(sm_output.update)
+# skillbook has already been mutated in place
 ```
 
 Returns a `SkillManagerOutput` with an `.update` field (`UpdateBatch`) and `.raw` field.
@@ -209,12 +209,12 @@ skillbook = Skillbook()
 
 | Method / Property | Description |
 |-------------------|-------------|
-| `add_skill(section, content, metadata=None)` | Add a strategy |
+| `add_skill(section, issue=None, keywords=None, insight=None, content=None)` | Add a skill |
 | `apply_update(update_batch)` | Apply update operations |
 | `as_prompt()` | Markdown format for LLM consumption |
-| `save_to_file(path)` | Save to JSON |
-| `Skillbook.load_from_file(path)` | Load from JSON |
-| `stats()` | Section count, skill count, tag totals |
+| `save_to_file(path)` | Save JSON plus embeddings sidecar |
+| `Skillbook.load_from_file(path)` | Load JSON plus embeddings sidecar if present |
+| `stats()` | Section count, skill count, active skill totals |
 | `skills()` | List of all skills |
 
 See [The Skillbook](../concepts/skillbook.md).
@@ -254,8 +254,10 @@ from ace import UpdateOperation
 
 op = UpdateOperation(
     type="ADD",
-    section="Math",
-    content="Break problems into smaller steps",
+    section="context",
+    keywords=["math", "decomposition"],
+    issue="Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.",
+    insight="Break problems into smaller steps before computing.",
     reflection_index=0,
     reflection_indices=[0, 1],
     skill_id="math-00001",
