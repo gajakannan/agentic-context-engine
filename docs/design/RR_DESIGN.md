@@ -12,10 +12,8 @@ The Recursive Reflector replaces the single-pass `Reflector` with an iterative t
 
 - `RRStep` is a subclass of `RecursiveAgent` (`ace/core/recursive_agent.py`).
 - Satisfies both `StepProtocol` and `ReflectorLike` — usable as a pipeline step or a drop-in reflector replacement.
-- Uses a **two-stage PydanticAI flow**:
-  1. a tool-using evidence agent with `output_type=str`
-  2. a no-tool synthesis agent with `PromptedOutput(ReflectorOutput)`
-- This keeps the evidence-gathering pass in normal text mode and reserves the structured `ReflectorOutput` contract for the end.
+- Uses a single tool-using PydanticAI agent with `PromptedOutput(ReflectorOutput)`.
+- The same RR agent gathers evidence with tools, records intermediate observations, and returns the final structured `ReflectorOutput`.
 - Two-tier compaction (microcompaction + full summarization) handles context-window pressure.
 - Depth-based recursion via the `recurse` tool decomposes large/complex inputs.
 - PydanticAI's `UsageLimits` enforces token and request budgets.
@@ -92,11 +90,20 @@ RRStep(RecursiveAgent) (ace/steps/rr_step.py)
 
 | Tool | Signature | Defined in | Description |
 |------|-----------|------------|-------------|
-| `execute_code` | `(code: str) -> str` | `RecursiveAgent` | Run Python in the `TraceSandbox`. Variables persist across calls, so the tool is best used as a working memory for evidence-gathering: define variables, extract slices, compute checks, and verify contradictions. Tool output should stay terse and factual. It must not be used to print reflections, summaries, lessons, insights, analysis, or final synthesis; those belong in native assistant responses or `ReflectorOutput`, not in code. Raises `ModelRetry` on exceptions. |
+| `execute_code` | `(code: str) -> str` | `RecursiveAgent` | Run Python in the `TraceSandbox`. Variables persist across calls, so the tool owns working state for evidence gathering: define variables, extract slices, compute checks, and verify contradictions. Tool output should stay terse and factual. It must not be used to print reflections, summaries, lessons, insights, analysis, or final reflection prose; those belong in `ReflectorOutput`. Raises `ModelRetry` on exceptions. |
+| `think` | `(thought: str, evidence_refs: list[str] \| None) -> dict` | `RRStep` | Scratch prose channel for short working notes during the run (e.g. "mismatch confirmed, one more passenger-count check"). Notes are surfaced in `output.raw["thoughts"]` for inspection but **do not** propagate to the SkillManager. Conclusions, root cause, and key insight must therefore go in `ReflectorOutput`, not here. Persistent state for handoff to a sub-`recurse` belongs in a sandbox variable, not in `think`. |
 | `recurse` | `(prompt: str, context_code: str) -> str` | `RecursiveAgent` | Spawn a child session with its own sandbox. Child inherits data and helpers. Use `context_code` to prepare the child's data. Not available at max depth. |
-| `output_validator` | (on output) | `RRStep` | Ensures the evidence pass has used `execute_code` at least once before producing its native evidence summary. |
+| `output_validator` | (on output) | `RRStep` | Ensures the RR agent has used `execute_code` at least once before producing its final `ReflectorOutput`. |
 
-RR no longer relies on a single tool-capable structured-output agent. The evidence pass runs in plain text mode so the reflector can stop using tools and write a native summary; a second no-tool agent then converts that summary into `ReflectorOutput`.
+RR uses one tool-capable structured-output agent. It may call `execute_code`,
+`think`, skillbook inspection tools, and `recurse`, then stops using tools and
+returns `ReflectorOutput` directly. There is no second conversion agent.
+RR specializes the generic `execute_code` tool description for this step so the
+model sees it as an evidence workbench rather than a prose-reporting channel.
+RR also defaults to `temperature=0.0` for deterministic evidence analysis unless
+the caller passes explicit `model_settings`.
+For small traces, the generated data summary tells RR to use only a few focused
+code checks and avoid transcript walkthroughs.
 
 ### Dual Protocol Support
 

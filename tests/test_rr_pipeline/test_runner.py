@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+from pydantic_ai.settings import ModelSettings
 
 from ace.implementations.rr.config import RecursiveConfig
 from ace.core.context import ACEStepContext, SkillbookView
@@ -48,14 +49,15 @@ def _mock_compaction_result(
     reasoning: str = "mock reasoning",
     key_insight: str = "mock insight",
     correct_approach: str = "mock approach",
-) -> tuple[str, dict]:
+) -> tuple[ReflectorOutput, dict]:
     """Create a mock return value for run_agent_sync."""
-    output = (
-        f"## reasoning\n{reasoning}\n\n"
-        f"## error_identification\nnone\n\n"
-        f"## root_cause_analysis\nmock root cause\n\n"
-        f"## correct_approach\n{correct_approach}\n\n"
-        f"## key_insight\n{key_insight}\n"
+    output = ReflectorOutput(
+        reasoning=reasoning,
+        error_identification="none",
+        root_cause_analysis="mock root cause",
+        correct_approach=correct_approach,
+        key_insight=key_insight,
+        raw={},
     )
     metadata = {
         "usage": {
@@ -92,18 +94,9 @@ class TestRRStep:
         """RRStep.__call__ populates ctx.reflections."""
         rr = RRStep("test-model", config=RRConfig())
 
-        evidence_summary, metadata = _mock_compaction_result(key_insight="step test")
-        synthesized = ReflectorOutput(
-            reasoning="mock reasoning",
-            key_insight="step test",
-            correct_approach="mock approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result(key_insight="step test")
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             ctx = _make_ctx(
                 question="What is 2+2?",
                 answer="4",
@@ -120,24 +113,41 @@ class TestRRStep:
     def test_rr_trace_metadata_populated(self):
         """Successful reflection populates rr_trace in raw."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result()
-        synthesized = ReflectorOutput(
-            reasoning="mock reasoning",
-            key_insight="mock insight",
-            correct_approach="mock approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result()
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(_make_ctx())
 
         result = result_ctx.reflections[0]
         assert "rr_trace" in result.raw
         assert result.raw["rr_trace"]["timed_out"] is False
         assert "usage" in result.raw
+
+    def test_thoughts_are_exposed_in_raw(self):
+        """RRStep preserves think-tool notes recorded during evidence gathering."""
+        rr = RRStep("test-model", config=RRConfig())
+        reflection, metadata = _mock_compaction_result()
+
+        def _run_with_thought(*args, **kwargs):
+            deps = kwargs["deps"]
+            deps.thoughts.append(
+                {
+                    "thought": "The selected flights satisfy the requested dates.",
+                    "evidence_refs": ["messages[5]", "messages[9]"],
+                }
+            )
+            return reflection, metadata
+
+        with patch(_RUN_SYNC, side_effect=_run_with_thought):
+            result_ctx = rr(_make_ctx())
+
+        thoughts = result_ctx.reflections[0].raw["thoughts"]
+        assert thoughts == [
+            {
+                "thought": "The selected flights satisfy the requested dates.",
+                "evidence_refs": ["messages[5]", "messages[9]"],
+            }
+        ]
 
     def test_timeout_produces_output(self):
         """Budget exhaustion produces a timeout ReflectorOutput."""
@@ -196,18 +206,9 @@ class TestRRStepProtocol:
     def test_reflect_method(self):
         """reflect() delegates to the PydanticAI agent."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result(key_insight="reflected")
-        synthesized = ReflectorOutput(
-            reasoning="mock reasoning",
-            key_insight="reflected",
-            correct_approach="mock approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result(key_insight="reflected")
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),
@@ -289,14 +290,57 @@ class TestMeteredModel:
 
         assert not isinstance(rr._agent.model, MeteredModel)
 
-    def test_rrstep_uses_text_then_prompted_output(self):
-        """RR should gather evidence as text, then synthesize structured output."""
+    def test_rrstep_uses_prompted_reflector_output(self):
+        """RR should gather evidence with tools and return structured output directly."""
         rr = RRStep("test-model", config=RRConfig())
 
-        assert rr._agent._output_schema.mode == "text"
+        assert rr._agent._output_schema.mode == "prompted"
         assert rr._agent._output_schema.allows_text is True
-        assert rr._synthesis_agent._output_schema.mode == "prompted"
-        assert rr._synthesis_agent._output_schema.allows_text is True
+
+    def test_rrstep_defaults_to_deterministic_temperature(self):
+        """RR defaults to deterministic evidence analysis unless overridden."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        assert rr._agent.model_settings["temperature"] == 0.0
+
+    def test_rrstep_preserves_explicit_model_settings(self):
+        """Callers can still override RR model settings explicitly."""
+        rr = RRStep(
+            "test-model",
+            config=RRConfig(),
+            model_settings=ModelSettings(temperature=0.7),
+        )
+
+        assert rr._agent.model_settings["temperature"] == 0.7
+
+    def test_rrstep_specializes_execute_code_tool_description(self):
+        """RR should present execute_code as an evidence tool, not a prose channel."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        tool = rr._agent._function_toolset.tools["execute_code"]
+
+        assert "evidence workbench" in tool.description
+        assert "think" in tool.description
+        assert "store strings/snippets" in tool.description
+        assert tool.function_schema.description == tool.description
+        code_schema = tool.function_schema.json_schema["properties"]["code"]
+        assert "short snippet" in code_schema["description"]
+
+    def test_small_trace_summary_includes_effort_guidance(self):
+        """Small traces should discourage transcript walkthroughs."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        summary = rr._build_data_summary(
+            {
+                "question": "q",
+                "feedback": "Task PASSED",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+        )
+
+        assert "Expected effort" in summary
+        assert "2-4 focused execute_code checks" in summary
+        assert "Do not produce a transcript walkthrough" in summary
 
     def test_prebuilt_model_and_callback_compose(self):
         """Pre-built Model + usage_callback both apply — meter wraps the instance."""

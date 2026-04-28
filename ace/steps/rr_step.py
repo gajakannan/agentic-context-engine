@@ -11,7 +11,6 @@ import json as _json
 import logging
 from typing import Any, Optional, cast
 
-from pydantic_ai import Agent as PydanticAgent
 from pydantic_ai.models import Model as PydanticModel
 from pydantic_ai.output import PromptedOutput
 from pydantic_ai.settings import ModelSettings
@@ -28,8 +27,6 @@ from ace.implementations.rr.prompts import (
     COMPACTION_SUMMARY_PROMPT,
     REFLECTOR_RECURSIVE_PROMPT,
     REFLECTOR_RECURSIVE_SYSTEM,
-    REFLECTOR_SYNTHESIS_PROMPT,
-    REFLECTOR_SYNTHESIS_SYSTEM,
     RR_SKILLBOOK_INSPECTION_SECTION,
 )
 from ace.implementations.rr.tools import (
@@ -37,6 +34,7 @@ from ace.implementations.rr.tools import (
     register_output_validator,
     register_read_skill,
     register_search_skillbook,
+    register_think,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,15 +79,17 @@ class RRStep(RecursiveAgent):
         model_settings: ModelSettings | None = None,
     ) -> None:
         self.prompt_template = prompt_template
+        effective_model_settings = model_settings or ModelSettings(temperature=0.0)
 
         super().__init__(
             model,
-            output_type=str,
+            output_type=cast(Any, PromptedOutput(ReflectorOutput)),
             system_prompt=REFLECTOR_RECURSIVE_SYSTEM,
             config=config or RRConfig(),
-            model_settings=model_settings,
+            model_settings=effective_model_settings,
             tools=[
                 register_output_validator,
+                register_think,
                 register_read_skill,
                 register_search_skillbook,
             ],
@@ -106,14 +106,47 @@ class RRStep(RecursiveAgent):
             ),
             on_compaction=RecursiveAgent.on_compaction,
         )
-        self._synthesis_agent = PydanticAgent(
-            self._agent.model,
-            output_type=cast(Any, PromptedOutput(ReflectorOutput)),
-            system_prompt=REFLECTOR_SYNTHESIS_SYSTEM,
-            retries=3,
-            model_settings=model_settings,
-            defer_model_check=True,
+
+    def _create_agent(self, depth: int = 0) -> Any:
+        """Create an RR agent and specialize generic tool descriptions."""
+        agent = super()._create_agent(depth=depth)
+        self._specialize_execute_code_tool(agent)
+        return agent
+
+    @staticmethod
+    def _specialize_execute_code_tool(agent: Any) -> None:
+        """Clarify ``execute_code`` semantics for RR without changing core."""
+        toolset = getattr(agent, "_function_toolset", None)
+        tools = getattr(toolset, "tools", {}) if toolset is not None else {}
+        tool = tools.get("execute_code")
+        if tool is None:
+            return
+
+        description = (
+            "Execute Python as an evidence workbench over the trace. "
+            "Use it to inspect runtime data, define sandbox variables, extract "
+            "slices, store strings/snippets, compute checks, and print compact "
+            "evidence such as a variable value, short extracted snippet, dict, "
+            "list, count, boolean, or mismatch. Whenever you would reach for "
+            "`print(\"=== HEADING ===\")` or a hand-written narrative, route "
+            "that prose through the `think` tool instead — that is its job. "
+            "Final conclusions belong in the structured ReflectorOutput, "
+            "not in Python prints."
         )
+        tool.description = description
+        function_schema = getattr(tool, "function_schema", None)
+        if function_schema is not None:
+            function_schema.description = description
+            code_schema = function_schema.json_schema.get("properties", {}).get("code")
+            if isinstance(code_schema, dict):
+                code_schema["description"] = (
+                    "Python evidence-gathering code. Read from runtime data, "
+                    "assign reusable sandbox variables, compute checks, and "
+                    "print at most compact evidence: a variable value, short "
+                    "snippet, dict/list/check result, count, or mismatch. "
+                    "Send running narration through `think`; send final "
+                    "conclusions through ReflectorOutput."
+                )
 
     # ------------------------------------------------------------------
     # StepProtocol
@@ -229,20 +262,19 @@ class RRStep(RecursiveAgent):
             prompt_payload = [initial_prompt, CachePoint(ttl=self.config.cache_ttl)]
 
         try:
-            evidence_summary, metadata = self.run(
+            output, metadata = self.run(
                 deps=deps,
                 prompt=prompt_payload,
                 remaining_tokens=remaining,
             )
-            output = self._synthesize_reflection(
-                question=question,
-                feedback=feedback,
-                evidence_summary=evidence_summary,
-            )
+            if not isinstance(output, ReflectorOutput):
+                raise TypeError(
+                    f"RR agent returned {type(output).__name__}, "
+                    "expected ReflectorOutput"
+                )
             output.raw = {
                 **output.raw,
-                "evidence_summary": evidence_summary,
-                "evidence_usage": metadata.get("usage", {}),
+                "thoughts": list(deps.thoughts),
                 **metadata,
                 "rr_trace": {
                     "total_iterations": deps.iteration,
@@ -272,33 +304,6 @@ class RRStep(RecursiveAgent):
 
         return output
 
-    def _synthesize_reflection(
-        self,
-        *,
-        question: str,
-        feedback: Optional[str],
-        evidence_summary: str,
-    ) -> ReflectorOutput:
-        """Convert the native evidence summary into the final structured output."""
-        prompt = REFLECTOR_SYNTHESIS_PROMPT.format(
-            question=question or "(missing question)",
-            feedback=feedback or "(none)",
-            evidence_summary=evidence_summary or "(empty evidence summary)",
-        )
-        result = self._synthesis_agent.run_sync(prompt)
-        output = result.output
-        usage = result.usage()
-        output.raw = {
-            **output.raw,
-            "synthesis_usage": {
-                "input_tokens": usage.input_tokens or 0,
-                "output_tokens": usage.output_tokens or 0,
-                "total_tokens": usage.total_tokens or 0,
-                "requests": usage.requests or 0,
-            },
-        }
-        return output
-
     def _build_budget_exhausted_output(
         self, deps: RRDeps, compaction_count: int, depth: int
     ) -> ReflectorOutput:
@@ -310,6 +315,7 @@ class RRStep(RecursiveAgent):
             key_insight="Session reached budget limit before completing",
             raw={
                 "timeout": True,
+                "thoughts": list(deps.thoughts),
                 "rr_trace": {
                     "total_iterations": deps.iteration,
                     "subagent_calls": [],
@@ -380,6 +386,7 @@ class RRStep(RecursiveAgent):
         ground_truth = traces.get("ground_truth", "")
 
         lines = ["### Data Summary"]
+        trace_size_chars = len(_json.dumps(traces, default=str))
         if feedback:
             lines.append(f"- **Feedback**: {_preview(feedback, 200)}")
         if ground_truth:
@@ -396,6 +403,17 @@ class RRStep(RecursiveAgent):
             )
             if tool_calls:
                 lines.append(f"- **Tool calls**: {tool_calls}")
+            if len(messages) <= 50 and trace_size_chars <= 50_000:
+                lines.append(
+                    "- **Expected effort**: small trace — use 2-4 focused "
+                    "execute_code checks, then write the final ReflectorOutput. "
+                    "Do not produce a transcript walkthrough."
+                )
+        elif trace_size_chars <= 50_000:
+            lines.append(
+                "- **Expected effort**: small trace — use 2-4 focused "
+                "execute_code checks, then write the final ReflectorOutput."
+            )
 
         return "\n".join(lines)
 
@@ -461,6 +479,7 @@ class RRStep(RecursiveAgent):
                 "timeout": True,
                 "question": question,
                 "feedback": feedback,
+                "thoughts": list(deps.thoughts),
                 "rr_trace": {
                     "total_iterations": deps.iteration,
                     "subagent_calls": [],

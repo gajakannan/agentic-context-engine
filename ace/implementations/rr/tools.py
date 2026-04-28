@@ -41,6 +41,7 @@ class RRDeps(AgenticDeps):
     trace_data: dict[str, Any] = field(default_factory=dict)
     skillbook_text: str = ""
     skillbook: Optional[Union[Skillbook, SkillbookView]] = None
+    thoughts: list[dict[str, Any]] = field(default_factory=list)
 
 
 # ------------------------------------------------------------------
@@ -58,7 +59,7 @@ def register_output_validator(agent: "PydanticAgent[RRDeps, Any]") -> None:
             raise ModelRetry(
                 "You haven't explored the data enough. "
                 "Use execute_code first, "
-                "then provide your final native evidence summary."
+                "then provide your final ReflectorOutput."
             )
         return output
 
@@ -91,6 +92,49 @@ def register_read_skill(agent: "PydanticAgent[RRDeps, Any]") -> None:
             "harmful_count": skill.harmful_count,
             "neutral_count": skill.neutral_count,
             "occurrences": [source.to_dict() for source in skill.occurrences],
+        }
+
+
+def register_think(agent: "PydanticAgent[RRDeps, Any]") -> None:
+    """Register the ``think`` narration channel.
+
+    ``think`` is the home for the model's running narration during a
+    tool-use turn — what it just confirmed, what it is checking next, brief
+    observations. This keeps prose out of ``execute_code`` stdout, where
+    Python should only print compact structured evidence. The final
+    conclusion still belongs in ``ReflectorOutput`` (the only sink that
+    propagates to the SkillManager); ``think`` notes are surfaced in
+    ``output.raw["thoughts"]`` for inspection only.
+    """
+
+    @agent.tool
+    def think(
+        ctx: RunContext[RRDeps],
+        thought: str,
+        evidence_refs: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Narrate your working state during the run.
+
+        Use this for mid-run prose: "checking the constraint window next",
+        "the mismatch is confirmed", "the decisive message is at index 12".
+        Use it freely — it is the right home for everything you would
+        naturally say while working. The final conclusion still goes in
+        ``ReflectorOutput``; reusable data still lives in sandbox variables
+        via ``execute_code``.
+        """
+        normalized = thought.strip()
+        if not normalized:
+            raise ModelRetry("Thought must be non-empty.")
+
+        refs = [ref.strip() for ref in (evidence_refs or []) if ref.strip()]
+        entry = {
+            "thought": normalized,
+            "evidence_refs": refs,
+        }
+        ctx.deps.thoughts.append(entry)
+        return {
+            "ok": True,
+            "thought_count": len(ctx.deps.thoughts),
         }
 
 
