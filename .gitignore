@@ -114,3 +114,7 @@ site/
 
 # GSD planning artifacts (NEVER commit!)
 .planning/
+
+# Local scratch / experiment outputs
+sdk/openclaw/
+tmp/
