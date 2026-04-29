@@ -9,7 +9,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.usage import UsageLimits
 
 from ace.implementations.rr.config import RecursiveConfig
@@ -56,17 +62,23 @@ def _mock_compaction_result(
     key_insight: str = "insight",
     correct_approach: str = "approach",
     timed_out: bool = False,
-) -> tuple[str, dict]:
+) -> tuple[ReflectorOutput, dict]:
     """Create a mock return value for run_agent_sync."""
-    output = (
-        f"## reasoning\n{reasoning}\n\n"
-        f"## error_identification\nnone\n\n"
-        f"## root_cause_analysis\nmock root cause\n\n"
-        f"## correct_approach\n{correct_approach}\n\n"
-        f"## key_insight\n{key_insight}\n"
+    output = ReflectorOutput(
+        reasoning=reasoning,
+        error_identification="none",
+        root_cause_analysis="mock root cause",
+        correct_approach=correct_approach,
+        key_insight=key_insight,
+        raw={},
     )
     metadata = {
-        "usage": {"input_tokens": 100, "output_tokens": 50, "total_tokens": 150, "requests": 3},
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "requests": 3,
+        },
         "compactions": 0,
         "depth": 0,
         "iterations": 2,
@@ -86,18 +98,9 @@ class TestLoopLifecycle:
     def test_successful_reflection(self):
         """Happy path: PydanticAI agent produces valid ReflectorOutput."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result(key_insight="insight")
-        synthesized = ReflectorOutput(
-            reasoning="done",
-            key_insight="insight",
-            correct_approach="approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result(key_insight="insight")
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(
                 _make_ctx(
                     question="What is 2+2?",
@@ -117,21 +120,12 @@ class TestLoopLifecycle:
             config=RRConfig(max_requests=3),
         )
 
-        evidence_summary, metadata = _mock_compaction_result(
+        reflection, metadata = _mock_compaction_result(
             reasoning="Analysis reached budget limit.",
             timed_out=True,
         )
-        synthesized = ReflectorOutput(
-            reasoning="Analysis reached budget limit.",
-            key_insight="insight",
-            correct_approach="approach",
-            raw={},
-        )
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(_make_ctx())
 
         assert len(result_ctx.reflections) == 1
@@ -149,7 +143,9 @@ class TestLoopLifecycle:
 
     def test_config_build_usage_limits(self):
         """build_usage_limits() produces correct UsageLimits."""
-        cfg = RecursiveConfig(max_tokens=500_000, max_requests=50, context_window=128_000)
+        cfg = RecursiveConfig(
+            max_tokens=500_000, max_requests=50, context_window=128_000
+        )
         limits = cfg.build_usage_limits()
         assert limits.total_tokens_limit == 500_000
         assert limits.request_limit == 50
@@ -161,22 +157,12 @@ class TestLoopLifecycle:
         assert limits.total_tokens_limit == 100_000
         assert limits.request_limit == 50
 
-
     def test_rr_trace_metadata_on_success(self):
         """Successful reflection populates rr_trace metadata."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result()
-        synthesized = ReflectorOutput(
-            reasoning="done",
-            key_insight="insight",
-            correct_approach="approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result()
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(_make_ctx())
 
         result = result_ctx.reflections[0]
@@ -325,13 +311,7 @@ class TestEntryPoints:
     def test_call_produces_reflection(self):
         """__call__() produces a ReflectorOutput on the context."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result(key_insight="insight")
-        synthesized = ReflectorOutput(
-            reasoning="done",
-            key_insight="insight",
-            correct_approach="approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result(key_insight="insight")
 
         traces = {
             "question": "q",
@@ -341,10 +321,7 @@ class TestEntryPoints:
         }
         ctx = ACEStepContext(trace=traces, skillbook=SkillbookView(Skillbook()))
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(ctx)
 
         assert isinstance(result_ctx.reflections[0], ReflectorOutput)
@@ -353,18 +330,9 @@ class TestEntryPoints:
     def test_reflect_method_works(self):
         """reflect() works as ReflectorLike entry point."""
         rr = RRStep("test-model", config=RRConfig())
-        evidence_summary, metadata = _mock_compaction_result(key_insight="reflected")
-        synthesized = ReflectorOutput(
-            reasoning="done",
-            key_insight="reflected",
-            correct_approach="approach",
-            raw={},
-        )
+        reflection, metadata = _mock_compaction_result(key_insight="reflected")
 
-        with (
-            patch(_RUN_SYNC, return_value=(evidence_summary, metadata)),
-            patch.object(rr, "_synthesize_reflection", return_value=synthesized),
-        ):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),
@@ -387,7 +355,9 @@ class TestRecurseToolRegistration:
         from ace.core.recursive_agent import AgenticConfig, RecursiveAgent
 
         ra = RecursiveAgent(
-            "test-model", output_type=ReflectorOutput, system_prompt="test",
+            "test-model",
+            output_type=ReflectorOutput,
+            system_prompt="test",
             config=AgenticConfig(max_depth=2),
         )
         agent = ra._create_agent(depth=0)
@@ -399,7 +369,9 @@ class TestRecurseToolRegistration:
         from ace.core.recursive_agent import AgenticConfig, RecursiveAgent
 
         ra = RecursiveAgent(
-            "test-model", output_type=ReflectorOutput, system_prompt="test",
+            "test-model",
+            output_type=ReflectorOutput,
+            system_prompt="test",
             config=AgenticConfig(max_depth=2),
         )
         agent = ra._create_agent(depth=2)
@@ -411,7 +383,9 @@ class TestRecurseToolRegistration:
         from ace.core.recursive_agent import AgenticConfig, RecursiveAgent
 
         ra = RecursiveAgent(
-            "test-model", output_type=ReflectorOutput, system_prompt="test",
+            "test-model",
+            output_type=ReflectorOutput,
+            system_prompt="test",
             config=AgenticConfig(max_depth=0),
         )
         agent = ra._create_agent(depth=0)
@@ -428,15 +402,20 @@ class TestMicrocompaction:
         # Build a message list with 5 tool results
         messages = []
         for i in range(5):
-            messages.append(ModelRequest(parts=[
-                ToolReturnPart(
-                    tool_name="execute_code",
-                    content=f"result {i}",
-                    tool_call_id=f"call_{i}",
-                ),
-            ]))
+            messages.append(
+                ModelRequest(
+                    parts=[
+                        ToolReturnPart(
+                            tool_name="execute_code",
+                            content=f"result {i}",
+                            tool_call_id=f"call_{i}",
+                        ),
+                    ]
+                )
+            )
 
         from ace.core.recursive_agent import microcompact
+
         compacted = microcompact(messages, keep_recent=2, tool_names=("execute_code",))
 
         # Should NOT be the same object (changes were made)
@@ -453,12 +432,19 @@ class TestMicrocompaction:
         rr = RRStep("test-model", config=RRConfig())
 
         messages = [
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="execute_code", content="result 0", tool_call_id="call_0"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="execute_code",
+                        content="result 0",
+                        tool_call_id="call_0",
+                    ),
+                ]
+            ),
         ]
 
         from ace.core.recursive_agent import microcompact
+
         result = microcompact(messages, keep_recent=3, tool_names=("execute_code",))
         assert result is messages  # identity = no change
 
@@ -468,16 +454,29 @@ class TestMicrocompaction:
 
         messages = [
             ModelResponse(parts=[TextPart(content="thinking...")]),
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="execute_code", content="old result", tool_call_id="call_0"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="execute_code",
+                        content="old result",
+                        tool_call_id="call_0",
+                    ),
+                ]
+            ),
             ModelResponse(parts=[TextPart(content="more thinking...")]),
-            ModelRequest(parts=[
-                ToolReturnPart(tool_name="execute_code", content="new result", tool_call_id="call_1"),
-            ]),
+            ModelRequest(
+                parts=[
+                    ToolReturnPart(
+                        tool_name="execute_code",
+                        content="new result",
+                        tool_call_id="call_1",
+                    ),
+                ]
+            ),
         ]
 
         from ace.core.recursive_agent import microcompact
+
         compacted = microcompact(messages, keep_recent=1, tool_names=("execute_code",))
         assert compacted is not messages
         # First tool result cleared, second kept
@@ -493,6 +492,7 @@ class TestBudgetExhausted:
     def test_is_budget_exhausted_tokens(self):
         """is_budget_exhausted detects total token limit."""
         from ace.core.recursive_agent import is_budget_exhausted
+
         limits = UsageLimits(total_tokens_limit=1000, request_limit=50)
         usage = MagicMock()
         usage.total_tokens = 1000
@@ -502,6 +502,7 @@ class TestBudgetExhausted:
     def test_is_budget_exhausted_requests(self):
         """is_budget_exhausted detects request limit."""
         from ace.core.recursive_agent import is_budget_exhausted
+
         limits = UsageLimits(total_tokens_limit=100_000, request_limit=10)
         usage = MagicMock()
         usage.total_tokens = 500
@@ -511,6 +512,7 @@ class TestBudgetExhausted:
     def test_is_budget_not_exhausted(self):
         """is_budget_exhausted returns False when under budget."""
         from ace.core.recursive_agent import is_budget_exhausted
+
         limits = UsageLimits(total_tokens_limit=100_000, request_limit=50)
         usage = MagicMock()
         usage.total_tokens = 500
