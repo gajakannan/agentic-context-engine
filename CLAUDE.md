@@ -57,7 +57,7 @@ Key design docs:
 
 ### Commands
 - `uv sync` — install all dependencies
-- `uv run pytest` — run tests (coverage enforced `--cov-fail-under=25`)
+- `uv run pytest` — run tests (excludes `integration` and `requires_api` markers by default)
 - `uv run pytest -m unit` / `-m integration` / `-m slow` — run by marker
 - `uv run black ace/ tests/ examples/` — format code
 - `uv run mypy ace/` — type check

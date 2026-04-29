@@ -7,11 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-29
+
+### Added
+- **`RecursiveAgent` core abstraction** — extracted from RR into `ace/core/recursive_agent.py`; provides a generic recursive PydanticAI agent with sandbox, microcompaction, default tool set, and depth-aware sub-agent registration. Reusable across roles beyond the Reflector.
+- **Skillbook v2 schema** — full rewrite of `ace/core/skillbook.py` with section-grouped storage, richer `InsightSource` provenance, and BM25-backed retrieval (`rank-bm25` runtime dependency).
+- **Agentic SkillManager** — `SkillManager` rewritten as a tool-calling loop (`ace/implementations/sm_tools.py`). Provenance is now populated by the SkillManager agent directly rather than a dedicated step.
+- **RR skillbook tools for the Reflector** — Reflector can introspect and propose updates to the skillbook from inside the recursive loop.
+- **Anthropic prompt caching enabled by default** for RR agents; `cache_read_tokens` and `cache_write_tokens` are forwarded in run metadata for cost accounting.
+- **Logfire spans around recursive agent sessions** for end-to-end observability of nested RR runs.
+- **Online / offline mode** in the ACE runner.
+- **`nest-asyncio`** added to the dev extra to support nested loops in notebooks and live test scripts.
+
 ### Changed
+- **RR collapsed into a single `RRStep`** — the orchestrator/worker split, batch machinery, and `AttachInsightSourcesStep` have been removed. RR now runs as a true recursive loop with depth-bounded sub-agent delegation and microcompaction of stale tool results.
+- **Reflector prompts** simplified, deduplicated, and made input-agnostic; added early-skillbook-skim and parallel-tool guidance.
+- **`record_observation` tool renamed to `think`** to clarify it is a scratch reasoning channel, not persistent storage.
+- **Native evidence summaries** are produced inside RR before final synthesis.
 - **Skillbook prompt format is now markdown** — `Skillbook.as_prompt()` returns a section-grouped markdown list instead of TOON. The `python-toon` dependency has been dropped.
+- **`metered_model` and `sandbox`** moved from `ace/rr/` into `ace/core/` to reflect their cross-role use.
+- **Pytest defaults** — `uv run pytest` now excludes `integration` and `requires_api` markers by default; coverage flags removed from `addopts` (run with `--cov` explicitly when needed).
+- **Observability** — `tool_arguments` and `tool_response` are no longer scrubbed by the Logfire callback so tool I/O remains inspectable.
 
 ### Removed
+- `ace/rr/` legacy package layout (`agent.py`, `runner.py`, `trace_context.py`, `message_trimming.py`, batch helpers). Functionality is now in `ace/core/recursive_agent.py` and `ace/implementations/rr/`.
+- `AttachInsightSourcesStep` and its pipeline wiring — provenance is attached by the SkillManager agent.
 - `python-toon` runtime dependency.
+- TAG handling from the SkillManager.
+- Citation scanning from the Reflector.
 
 ## [0.10.0] - 2026-04-13
 
