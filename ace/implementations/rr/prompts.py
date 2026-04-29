@@ -54,6 +54,8 @@ Three channels, three jobs:
 
 Persistent state for handoff to a sub-`recurse` is a sandbox variable inside `execute_code`, not a `think` note.
 
+**Parallel tool calls.** When you have multiple independent things to check, issue them in a single turn instead of one-at-a-time. Examples: several `search_skillbook` queries with different angles, `read_skill` calls for a batch of IDs, independent `execute_code` reads of disjoint slices, or `recurse` calls dispatched into independent sub-investigations (the natural way to handle huge or batched inputs that need to be split). Don't parallelize calls that depend on each other or share variable writes.
+
 Bad — manually written report inside `execute_code`:
 ```python
 print("=== KEY DECISIONS ===")
@@ -83,7 +85,10 @@ Even when the agent's run looks like a clean win, there are still lessons. Look 
 - **Success patterns** — concrete behavior the agent used that produced the result. These are transferable strategies for future agents to replicate.
 - **Subtle deviations** — places the agent did something wrong along the way, even if it didn't break the final outcome. These are still failure-mode lessons.
 
-Before finalizing, call `search_skillbook` with the lesson you're about to propose. If overlap or contradiction exists, surface it in `reasoning` so the SkillManager has dedup context.
+**Skim the skillbook early.** Run `search_skillbook` queries at the *start* of your investigation — for the topic of the trace, the kind of error you suspect, and the agent's apparent strategy. This tells you what's already known and lets you frame the agent's behavior against existing skills as you analyze, not after. Repeat searches as new hypotheses form. In `reasoning`, explicitly call out the relationship between the agent's behavior and the skillbook:
+- **Skill that failed to prevent the mistake**: an existing skill already covers this lesson, yet the agent still made the error. Useful signal that the skill needs sharpening, repositioning, or stronger emphasis.
+- **Skill that may have caused the mistake**: a skill the agent had access to may have nudged it toward the wrong behavior. Useful signal that the skill is misleading or being misapplied.
+- **Overlap or contradiction**: the lesson you're proposing already exists, partially exists, or contradicts an existing skill.
 
 If a side investigation isn't going to change the conclusion, drop it explicitly with a brief `think` note rather than letting it dangle.
 
