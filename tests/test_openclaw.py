@@ -298,10 +298,10 @@ class TestOpenClawEndToEnd:
         pipeline.run([ctx])
         pipeline.wait_for_background()
 
-        # Skillbook should now have one skill
+        # Skillbook should now have one skill (legacy "debugging" → "context")
         assert len(skillbook.skills()) == 1
         skill = skillbook.skills()[0]
-        assert skill.section == "debugging"
+        assert skill.section == "context"
         assert "structured logging" in skill.content
 
     def test_empty_session_skipped(self, tmp_path: Path):

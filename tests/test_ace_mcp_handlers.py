@@ -102,7 +102,13 @@ async def test_handle_skillbook_get_uses_skill_type(handlers, registry):
 
     with patch("ace.integrations.mcp.registry.ACELiteLLM") as mock_runner_cls:
         runner = MagicMock()
-        skill = Skill(id="s1", section="topic-a", content="do X")
+        skill = Skill(
+            id="s1",
+            section="context",
+            keywords=["topic-a"],
+            issue="do X",
+            insight="do X",
+        )
         runner.skillbook.skills.return_value = [skill]
         runner.skillbook.stats.return_value = {"skills": 1}
         mock_runner_cls.from_model.return_value = runner
@@ -112,11 +118,11 @@ async def test_handle_skillbook_get_uses_skill_type(handlers, registry):
         resp = await handlers.handle_skillbook_get(req)
 
         assert resp.skills[0].id == "s1"
-        assert resp.skills[0].topic == "topic-a"
+        assert resp.skills[0].topic == "context"
         assert resp.skills[0].content == "do X"
-        assert resp.skills[0].helpful is None
-        assert resp.skills[0].harmful is None
-        assert resp.skills[0].neutral is None
+        assert resp.skills[0].helpful == 0
+        assert resp.skills[0].harmful == 0
+        assert resp.skills[0].neutral == 0
 
 
 # ── ace.learn.sample ─────────────────────────────────────────────
