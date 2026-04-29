@@ -53,6 +53,10 @@ def configure_logfire() -> bool:
                 return m.value
             if "payment_id" in m.path:
                 return m.value
+            if "tool_arguments" in m.path:
+                return m.value
+            if "tool_response" in m.path:
+                return m.value
 
         logfire.configure(
             scrubbing=logfire.ScrubbingOptions(callback=scrubbing_callback)
