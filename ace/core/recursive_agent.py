@@ -458,6 +458,12 @@ async def run_agent_with_compaction(
                             "output_tokens": usage.output_tokens,
                             "total_tokens": usage.total_tokens,
                             "requests": usage.requests,
+                            "cache_read_tokens": getattr(
+                                usage, "cache_read_tokens", 0
+                            ),
+                            "cache_write_tokens": getattr(
+                                usage, "cache_write_tokens", 0
+                            ),
                         },
                         "compactions": compaction_count,
                         "depth": deps.depth,
