@@ -455,9 +455,12 @@ Skills rendered into the agent's prompt this run (tagging scope):
 
 <workflow>
 1. Read the reflection. Identify concrete patterns with evidence.
-2. For each skill in `injected_skill_ids`, decide whether the outcome + reflection \
-gives you evidence that it helped, harmed, or was neutral. Call tag_skill accordingly. \
-Skip skills with no evidence.
+2. Tag only the skills the reflection provides direct evidence for — that is, \
+skills the reflection actually implicates (cites, contradicts, builds on, or \
+attributes the outcome to). Do NOT iterate over `injected_skill_ids` and tag every \
+entry; that is not evidence-based. If the reflection mentions no specific skills, \
+skip tagging entirely. The tagging scope is `injected_skill_ids` — that is the \
+universe you are allowed to tag from, not the set you must tag.
 3. For genuinely novel patterns: call search_skills first. If no near-duplicate \
 exists, call add_skill with `section`, `issue`, `keywords`, and `insight` when needed.
 4. For improvements to existing skills: call update_skill with a rewritten `issue` \
