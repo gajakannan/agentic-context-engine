@@ -412,6 +412,10 @@ do not concatenate user input"). No hedging ("try to", "consider", "it may help"
 If "and also" appears, split into two skills. Embed a one-line concrete example \
 only when the rule is about format / shape (regex, schema, tool-argument structure); \
 skip examples for purely behavioral rules.
+- Atomicity check before submitting: re-read your `insight`. If you can describe \
+two distinct behaviors that fire under different triggers (e.g. "X under condition \
+A" and "Y after event B"), split into two separate skills with their own ADD calls. \
+Compound skills get diluted by attention; one rule = one skill.
 - Write `issue` as the problem plus applicability inline. Start narrow unless the \
 reflection clearly supports broader scope. `issue` is metadata for retrieval and \
 SkillManager judgment; it does not need to be self-sufficient prose.
