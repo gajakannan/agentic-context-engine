@@ -157,7 +157,8 @@ def register_search_skillbook(agent: "PydanticAgent[RRDeps, Any]") -> None:
 
         from ace.implementations.skill_rendering import retrieve_top_k
 
-        results = retrieve_top_k(sb, query, top_k=top_k)
+        actual_sb = sb._sb if isinstance(sb, SkillbookView) else sb
+        results = retrieve_top_k(actual_sb, query, top_k=top_k)
         return [
             {
                 "id": s.id,

@@ -1,6 +1,7 @@
 """Configuration for recursive reflector."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 from ...core.recursive_agent import AgenticConfig
 
@@ -15,4 +16,4 @@ class RecursiveConfig(AgenticConfig):
 
     max_output_chars: int = 50_000
     cache_prompts: bool = True
-    cache_ttl: str = "5m"
+    cache_ttl: Literal["5m", "1h"] = "5m"

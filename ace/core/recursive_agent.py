@@ -37,7 +37,9 @@ from typing import Any, Awaitable, Callable, Sequence, Type
 from pydantic_ai import Agent as PydanticAgent
 
 try:
-    import logfire as _logfire
+    import logfire
+
+    _logfire: Any = logfire
 except ImportError:
     _logfire = None
 
@@ -77,7 +79,7 @@ logger = logging.getLogger(__name__)
 # ------------------------------------------------------------------
 
 
-def register_execute_code(agent: PydanticAgent) -> None:
+def register_execute_code(agent: PydanticAgent[AgenticDeps, Any]) -> None:
     """Register the generic ``execute_code`` tool.
 
     Expects ``deps.sandbox`` (a :class:`TraceSandbox` or compatible)
@@ -133,7 +135,7 @@ def register_execute_code(agent: PydanticAgent) -> None:
         return output
 
 
-def register_recurse(agent: PydanticAgent) -> None:
+def register_recurse(agent: PydanticAgent[AgenticDeps, Any]) -> None:
     """Register the generic ``recurse`` tool for depth-based decomposition.
 
     Expects ``deps.run_session_fn`` to be set (done by
@@ -370,7 +372,7 @@ def microcompact(
 
 
 async def summarize_and_compact(
-    agent: PydanticAgent,
+    agent: PydanticAgent[AgenticDeps, Any],
     messages: list,
     deps: Any,
     compaction_count: int,
@@ -408,7 +410,7 @@ async def summarize_and_compact(
 
 
 async def run_agent_with_compaction(
-    agent: PydanticAgent,
+    agent: PydanticAgent[AgenticDeps, Any],
     *,
     deps: AgenticDeps,
     prompt: str,
@@ -449,6 +451,7 @@ async def run_agent_with_compaction(
                     async for _node in agent_run:
                         deps.parent_usage_tokens = agent_run.usage().total_tokens or 0
 
+                    assert agent_run.result is not None
                     output = agent_run.result.output
                     usage = agent_run.result.usage()
 
@@ -458,9 +461,7 @@ async def run_agent_with_compaction(
                             "output_tokens": usage.output_tokens,
                             "total_tokens": usage.total_tokens,
                             "requests": usage.requests,
-                            "cache_read_tokens": getattr(
-                                usage, "cache_read_tokens", 0
-                            ),
+                            "cache_read_tokens": getattr(usage, "cache_read_tokens", 0),
                             "cache_write_tokens": getattr(
                                 usage, "cache_write_tokens", 0
                             ),
@@ -518,7 +519,9 @@ async def run_agent_with_compaction(
 # ------------------------------------------------------------------
 
 
-def run_agent_sync(agent: PydanticAgent, **kwargs: Any) -> tuple[Any, dict]:
+def run_agent_sync(
+    agent: PydanticAgent[AgenticDeps, Any], **kwargs: Any
+) -> tuple[Any, dict]:
     """Synchronous wrapper around :func:`run_agent_with_compaction`."""
     coro = run_agent_with_compaction(agent, **kwargs)
     try:
@@ -538,7 +541,7 @@ def run_agent_sync(agent: PydanticAgent, **kwargs: Any) -> tuple[Any, dict]:
 # ------------------------------------------------------------------
 
 
-ToolRegistrar = Callable[[PydanticAgent], None]
+ToolRegistrar = Callable[..., None]
 
 
 class RecursiveAgent:
@@ -596,7 +599,7 @@ class RecursiveAgent:
         # Build root agent (depth=0)
         self._agent = self._create_agent(depth=0)
 
-    def _create_agent(self, depth: int = 0) -> PydanticAgent:
+    def _create_agent(self, depth: int = 0) -> PydanticAgent[AgenticDeps, Any]:
         """Create a PydanticAI agent for the given recursion depth."""
         if isinstance(self._model, PydanticModel):
             resolved = self._model
@@ -606,7 +609,7 @@ class RecursiveAgent:
         if self.config.usage_callback is not None:
             resolved = MeteredModel(resolved, self.config.usage_callback)
 
-        agent = PydanticAgent(
+        agent: PydanticAgent[AgenticDeps, Any] = PydanticAgent(
             resolved,
             output_type=self._output_type,
             system_prompt=self._system_prompt,

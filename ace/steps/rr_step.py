@@ -70,6 +70,7 @@ class RRStep(RecursiveAgent):
 
     requires = frozenset({"trace", "skillbook"})
     provides = frozenset({"reflections"})
+    config: RRConfig
 
     def __init__(
         self,
@@ -128,7 +129,7 @@ class RRStep(RecursiveAgent):
             "slices, store strings/snippets, compute checks, and print compact "
             "evidence such as a variable value, short extracted snippet, dict, "
             "list, count, boolean, or mismatch. Whenever you would reach for "
-            "`print(\"=== HEADING ===\")` or a hand-written narrative, route "
+            '`print("=== HEADING ===")` or a hand-written narrative, route '
             "that prose through the `think` tool instead — that is its job. "
             "Final conclusions belong in the structured ReflectorOutput, "
             "not in Python prints."
