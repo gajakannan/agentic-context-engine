@@ -401,8 +401,20 @@ Key rules:
 - Every ADD / UPDATE must include a concrete `issue`.
 - `context` skills require an `insight`; `harness` skills may omit it if there is \
 no reliable workaround yet.
+- `insight` is the only part of the skill that gets injected into the downstream \
+agent's prompt. It must be self-sufficient: it carries both the trigger condition \
+(when this applies) AND the action to take. Do NOT assume the agent will see `issue` \
+or `keywords` — they are retrieval / metadata only.
+- `insight` format: 15–50 words, one rule per skill, imperative voice (start with a \
+verb). Use positive framing by default ("do X"); use negation only for hard \
+prohibitions and pair with the positive alternative ("Use parameterized queries; \
+do not concatenate user input"). No hedging ("try to", "consider", "it may help"). \
+If "and also" appears, split into two skills. Embed a one-line concrete example \
+only when the rule is about format / shape (regex, schema, tool-argument structure); \
+skip examples for purely behavioral rules.
 - Write `issue` as the problem plus applicability inline. Start narrow unless the \
-reflection clearly supports broader scope.
+reflection clearly supports broader scope. `issue` is metadata for retrieval and \
+SkillManager judgment; it does not need to be self-sufficient prose.
 - Choose 1-5 short stable keywords (domain, subsystem, API, behavior category).
 - Before ADD, call search_skills to check for near-duplicates. If a semantically \
 similar skill exists, prefer UPDATE.
