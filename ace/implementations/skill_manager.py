@@ -187,8 +187,12 @@ class SkillManager(RecursiveAgent):
             current_source=source,
         )
 
+        from pydantic_ai.messages import CachePoint
+
+        prompt_payload: Any = [prompt, CachePoint(ttl="5m")]
+
         try:
-            report, metadata = self.run(deps=deps, prompt=prompt)
+            report, metadata = self.run(deps=deps, prompt=prompt_payload)
             reasoning = report.reasoning if report is not None else ""
             raw = {
                 **metadata,
