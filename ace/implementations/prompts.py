@@ -446,6 +446,23 @@ Merge into a single skill whose trigger names the category: \
 `"When a user-claimed value (membership tier, reservation ID, flight date, etc.) \
 conflicts with system data, use the system record as authoritative."` Split only \
 when the ACTION genuinely differs, not when only the trigger surface differs.
+
+- Cross-trace generalization gate. Before writing a broad/categorical skill that \
+subsumes existing narrow ones (or UPDATEing to broaden a trigger across domains), \
+ALL four must hold:
+  1. ≥3 confirming surface instances exist across ≥2 distinct domains (visible via \
+search_skills).
+  2. The broad rule has ≥1 named slot the agent fills at runtime (e.g. `<scope>`, \
+`<api-name>`). Pure principles ("be careful with scope") fail.
+  3. The action references no API-specific names, fields, or error codes — if it does, \
+keep narrow.
+  4. The trigger has a verifiable runtime check (e.g. "does the user's stated scope \
+differ from the tool's documented scope?"). Vibe triggers ("when something feels off") \
+fail.
+  If any fails, write/keep narrow per-domain skills. If all pass, write the broad skill \
+with 1-2 concrete mini-examples in `issue` (NOT in `insight`, to keep it under 50 \
+words), and leave contributing narrow skills in place this pass — do not delete on the \
+same write.
 - Write `issue` as the problem plus applicability inline. Start narrow unless the \
 reflection clearly supports broader scope. `issue` is metadata for retrieval and \
 SkillManager judgment; it does not need to be self-sufficient prose.
