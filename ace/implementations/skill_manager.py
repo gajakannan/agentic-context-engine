@@ -17,13 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai.models import Model as PydanticModel
 from pydantic_ai.settings import ModelSettings
 
-from ..core.context import SkillbookView
 from ..core.insight_source import InsightSource
 from ..core.outputs import SkillManagerOutput
 from ..core.recursive_agent import AgenticConfig, BudgetExhausted, RecursiveAgent
@@ -129,7 +128,7 @@ class SkillManager(RecursiveAgent):
         self,
         *,
         reflections: tuple,
-        skillbook: Union[SkillbookView, Skillbook],
+        skillbook: Skillbook,
         question_context: str,
         progress: str,
         source: InsightSource,
@@ -144,9 +143,7 @@ class SkillManager(RecursiveAgent):
             reflections: Tuple of Reflector analyses (1-tuple for single,
                 N-tuple for batch).
             skillbook: Real :class:`Skillbook` — mutated in place by the
-                agent's tools. ``SkillbookView`` is accepted for backward
-                compatibility but the SM needs the real Skillbook to
-                apply changes; a view raises ``TypeError``.
+                agent's tools.
             question_context: Description of the task domain.
             progress: Current progress summary (e.g. ``"5/10 correct"``).
             source: Base provenance record for the current learning trace.
@@ -160,12 +157,6 @@ class SkillManager(RecursiveAgent):
             already applied; the caller does NOT need to call
             ``skillbook.apply_update()``.
         """
-        if isinstance(skillbook, SkillbookView):
-            raise TypeError(
-                "SkillManager needs a real Skillbook, not a SkillbookView. "
-                "UpdateStep / ACE runners inject the real skillbook."
-            )
-
         reflections_data = [
             {
                 "reasoning": r.reasoning,
