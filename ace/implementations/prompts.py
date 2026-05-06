@@ -405,17 +405,37 @@ no reliable workaround yet.
 agent's prompt. It must be self-sufficient: it carries both the trigger condition \
 (when this applies) AND the action to take. Do NOT assume the agent will see `issue` \
 or `keywords` — they are retrieval / metadata only.
-- `insight` format: 15–50 words, one rule per skill, imperative voice (start with a \
-verb). Use positive framing by default ("do X"); use negation only for hard \
-prohibitions and pair with the positive alternative ("Use parameterized queries; \
-do not concatenate user input"). No hedging ("try to", "consider", "it may help"). \
-If "and also" appears, split into two skills. Embed a one-line concrete example \
-only when the rule is about format / shape (regex, schema, tool-argument structure); \
-skip examples for purely behavioral rules.
-- Atomicity check before submitting: re-read your `insight`. If you can describe \
-two distinct behaviors that fire under different triggers (e.g. "X under condition \
-A" and "Y after event B"), split into two separate skills with their own ADD calls. \
-Compound skills get diluted by attention; one rule = one skill.
+- `insight` shape: one trigger + one action. Structure your `insight` as \
+`<single trigger condition>, <single imperative action>`. 15–50 words. Imperative \
+voice. Positive framing by default; negation only for hard prohibitions paired with \
+the positive alternative. No hedging ("try to", "consider", "it may help"). Embed a \
+one-line concrete example only when the rule is about format / shape (regex, schema, \
+tool-argument structure); skip examples for purely behavioral rules.
+
+  Good — atomic, one trigger one action:
+  ```
+  When <trigger condition>, <imperative action> — <optional one-line clarification \
+or verbatim phrase>.
+  ```
+
+  Bad — compound, three triggers chained:
+  ```
+  When <trigger A>, <action 1>, then if <trigger B>, <action 2>, and after \
+<event C>, <action 3>.
+  ```
+  The bad shape bundles three behaviors firing under three different triggers. It \
+must be split into three separate ADD calls — one skill per trigger. If you find \
+yourself stringing multiple "When…" / "if…" clauses together, or writing "and after \
+that, when X…", you are about to make this mistake. Call ADD multiple times — once \
+per trigger — even when the triggers feel logically chained in the reflection.
+
+  Sequential steps under a single trigger are NOT compound and should stay in one \
+skill. Example: `"When upgrading cabin class on a multi-leg reservation, compute \
+new_total = sum(price_per_leg × passengers) for ALL legs, subtract original_total, \
+then verify within budget before requesting confirmation."` — one trigger, three \
+ordered procedural steps, one skill. The diagnostic question is: *"could each step \
+fire independently of the others under a different trigger?"* If yes → split. If no \
+(the steps must always co-occur under the same trigger) → one skill.
 - Write `issue` as the problem plus applicability inline. Start narrow unless the \
 reflection clearly supports broader scope. `issue` is metadata for retrieval and \
 SkillManager judgment; it does not need to be self-sufficient prose.
