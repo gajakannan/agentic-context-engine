@@ -436,6 +436,16 @@ then verify within budget before requesting confirmation."` — one trigger, thr
 ordered procedural steps, one skill. The diagnostic question is: *"could each step \
 fire independently of the others under a different trigger?"* If yes → split. If no \
 (the steps must always co-occur under the same trigger) → one skill.
+
+  Two skills with the SAME action and only surface-different triggers are ONE skill, \
+not two. Example of over-decomposition (do NOT do): \
+`"When user claims a membership tier that conflicts with system, use system record"` \
++ `"When user claims a flight date that conflicts with system, use system record"` — \
+both have identical action ("use system record") and only the named field differs. \
+Merge into a single skill whose trigger names the category: \
+`"When a user-claimed value (membership tier, reservation ID, flight date, etc.) \
+conflicts with system data, use the system record as authoritative."` Split only \
+when the ACTION genuinely differs, not when only the trigger surface differs.
 - Write `issue` as the problem plus applicability inline. Start narrow unless the \
 reflection clearly supports broader scope. `issue` is metadata for retrieval and \
 SkillManager judgment; it does not need to be self-sufficient prose.
