@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from dataclasses import InitVar, asdict, dataclass, field, fields as dataclass_fields
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, Iterable, List, Literal, Optional, Union, cast
@@ -148,27 +148,6 @@ class UpdateOperation:
     learning_index: Optional[int] = None
     reflection_index: Optional[int] = None
     reflection_indices: List[int] = field(default_factory=list)
-    content: InitVar[Optional[str]] = None
-    justification: InitVar[Optional[str]] = None
-    evidence: InitVar[Optional[str]] = None
-
-    def __post_init__(
-        self,
-        content: Optional[str],
-        justification: Optional[str],
-        evidence: Optional[str],
-    ) -> None:
-        normalized_content = _normalize_optional_text(content)
-        if normalized_content is not None:
-            if self.type == "UPDATE":
-                if self.insight is None:
-                    self.insight = normalized_content
-            elif self.issue is None:
-                self.issue = normalized_content
-        if self.reason is None and justification is not None:
-            self.reason = _normalize_optional_text(justification)
-        if self.insight is None and evidence is not None and self.type == "TAG":
-            self.insight = _normalize_optional_text(evidence)
 
     @classmethod
     def from_json(cls, payload: Dict[str, object]) -> "UpdateOperation":
@@ -230,14 +209,7 @@ class UpdateOperation:
 
         issue = _normalize_optional_text(payload.get("issue"))
         insight = _normalize_optional_text(payload.get("insight"))
-
-        # Legacy operation compatibility.
-        if issue is None:
-            issue = _normalize_optional_text(payload.get("content"))
-        if payload.get("reason") is not None:
-            reason = _normalize_optional_text(payload.get("reason"))
-        else:
-            reason = _normalize_optional_text(payload.get("justification"))
+        reason = _normalize_optional_text(payload.get("reason"))
 
         return cls(
             type=cast(OperationType, op_type),
@@ -285,21 +257,6 @@ class UpdateOperation:
         if self.reflection_indices:
             data["reflection_indices"] = list(self.reflection_indices)
         return data
-
-    @property
-    def content(self) -> str | None:
-        """Backward-compatible alias for legacy callers."""
-        return self.insight or self.issue
-
-    @property
-    def justification(self) -> str | None:
-        """Backward-compatible alias for legacy callers."""
-        return self.reason
-
-    @property
-    def evidence(self) -> str | None:
-        """Backward-compatible alias for legacy callers."""
-        return None
 
 
 @dataclass
@@ -382,66 +339,6 @@ class Skill:
             parts.append(f"Keywords: {', '.join(self.keywords)}")
         return "\n\n".join(parts)
 
-    @property
-    def content(self) -> str:
-        """Backward-compatible alias for legacy readers."""
-        return self.insight or self.issue
-
-    @content.setter
-    def content(self, value: str) -> None:
-        text = _normalize_required_text(value, "content")
-        if self.section == "context" or self.insight is not None:
-            self.insight = text
-        else:
-            self.issue = text
-        self.embedding = None
-        self.updated_at = _now_iso()
-
-    @property
-    def status(self) -> Literal["active", "invalid"]:
-        """Backward-compatible alias for legacy readers."""
-        return "active" if self.active else "invalid"
-
-    @status.setter
-    def status(self, value: str) -> None:
-        self.active = str(value).strip().lower() == "active"
-        self.updated_at = _now_iso()
-
-    @property
-    def sources(self) -> list[InsightSource]:
-        """Backward-compatible alias for legacy readers."""
-        return self.occurrences
-
-    @sources.setter
-    def sources(self, value: list[InsightSource]) -> None:
-        self.occurrences = value
-
-    @property
-    def justification(self) -> str | None:
-        """Backward-compatible alias for legacy readers."""
-        if not self.occurrences:
-            return None
-        return self.occurrences[-1].learning_text
-
-    @property
-    def evidence(self) -> str | None:
-        """Backward-compatible alias for legacy readers."""
-        if not self.occurrences:
-            return None
-        return self.occurrences[-1].error_identification
-
-    @property
-    def helpful(self) -> int:
-        return self.helpful_count
-
-    @property
-    def harmful(self) -> int:
-        return self.harmful_count
-
-    @property
-    def neutral(self) -> int:
-        return self.neutral_count
-
 
 # ---------------------------------------------------------------------------
 # Skillbook
@@ -478,7 +375,6 @@ class Skillbook:
         keywords: Iterable[Any] | None = None,
         insight: str | None = None,
         skill_id: Optional[str] = None,
-        content: Optional[str] = None,
         insight_source: Optional[InsightSourceInput] = None,
     ) -> Skill:
         with self._lock:
@@ -486,13 +382,8 @@ class Skillbook:
             normalized_section, normalized_keywords = _coerce_section_and_keywords(
                 section, keywords
             )
-            issue_value = issue if issue is not None else content
-            issue_text = _normalize_required_text(issue_value, "issue")
+            issue_text = _normalize_required_text(issue, "issue")
             insight_text = _normalize_optional_text(insight)
-
-            # Legacy callers may still pass content instead of insight.
-            if insight_text is None and content is not None:
-                insight_text = _normalize_optional_text(content)
 
             if not normalized_keywords:
                 normalized_keywords = _normalize_keywords([raw_section])
@@ -524,7 +415,6 @@ class Skillbook:
         issue: object = _UNSET,
         keywords: object = _UNSET,
         insight: object = _UNSET,
-        content: Optional[str] = None,
         insight_source: Optional[InsightSourceInput] = None,
     ) -> Optional[Skill]:
         with self._lock:
@@ -543,8 +433,6 @@ class Skillbook:
 
             if insight is not _UNSET and insight is not None:
                 skill.insight = _normalize_optional_text(insight)
-            elif content is not None:
-                skill.insight = _normalize_optional_text(content)
 
             if skill.section == "context" and not skill.insight:
                 raise ValueError("context skills require a non-empty insight")
@@ -795,13 +683,11 @@ class Skillbook:
         import numpy as np
 
         sidecar_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            sidecar_path,
-            **{
-                skill_id: np.asarray(embedding, dtype="float32")
-                for skill_id, embedding in embeddings.items()
-            },
-        )
+        arrays = {
+            skill_id: np.asarray(embedding, dtype="float32")
+            for skill_id, embedding in embeddings.items()
+        }
+        np.savez_compressed(sidecar_path, **arrays)  # type: ignore[arg-type]
 
     @classmethod
     def load_from_file(cls, path: str) -> "Skillbook":

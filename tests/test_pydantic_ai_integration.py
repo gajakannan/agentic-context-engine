@@ -191,7 +191,9 @@ class TestSkillManagerRole:
         print(f"\n  Reasoning: {output.update.reasoning[:200]}")
         print(f"  Operations: {len(output.update.operations)}")
         for op in output.update.operations:
-            print(f"    {op.type}: {op.content[:80] if op.content else 'N/A'}")
+            print(
+                f"    {op.type}: {(op.insight or op.issue)[:80] if (op.insight or op.issue) else 'N/A'}"
+            )
 
     def test_tag_existing_skill(self):
         sm = SkillManager(MODEL)
@@ -218,7 +220,10 @@ class TestSkillManagerRole:
         assert isinstance(output, SkillManagerOutput)
         print(f"\n  Operations: {len(output.update.operations)}")
         for op in output.update.operations:
-            print(f"    {op.type} {op.skill_id or ''}: " f"{op.content or op.metadata}")
+            print(
+                f"    {op.type} {op.skill_id or ''}: "
+                f"{(op.insight or op.issue) or op.metadata}"
+            )
 
 
 class TestACELiteLLMIntegration:
@@ -325,7 +330,6 @@ class TestRRStepIntegration:
         config = RecursiveConfig(
             max_requests=15,
             timeout=15.0,
-
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -369,7 +373,6 @@ class TestRRStepIntegration:
         config = RecursiveConfig(
             max_requests=25,
             timeout=15.0,
-
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -422,7 +425,6 @@ class TestRRStepIntegration:
         config = RecursiveConfig(
             max_requests=15,
             timeout=15.0,
-
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -467,7 +469,6 @@ class TestRRStepIntegration:
         config = RecursiveConfig(
             max_requests=15,
             timeout=15.0,
-
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()

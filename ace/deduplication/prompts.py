@@ -51,9 +51,9 @@ def generate_similarity_report(
                 index=i,
                 similarity=similarity,
                 id_a=skill_a.id,
-                content_a=skill_a.content,
+                content_a=skill_a.insight or skill_a.issue,
                 id_b=skill_b.id,
-                content_b=skill_b.content,
+                content_b=skill_b.insight or skill_b.issue,
             )
         )
 
@@ -109,8 +109,10 @@ def format_pair_for_logging(
     skill_a: "Skill", skill_b: "Skill", similarity: float
 ) -> str:
     """Format a single pair for logging output."""
+    text_a = skill_a.insight or skill_a.issue
+    text_b = skill_b.insight or skill_b.issue
     return (
-        f"[{skill_a.id}] '{skill_a.content[:50]}...' "
-        f"<-> [{skill_b.id}] '{skill_b.content[:50]}...' "
+        f"[{skill_a.id}] '{text_a[:50]}...' "
+        f"<-> [{skill_b.id}] '{text_b[:50]}...' "
         f"({similarity:.0%} similar)"
     )

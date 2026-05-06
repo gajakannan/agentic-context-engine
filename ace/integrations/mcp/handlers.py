@@ -120,14 +120,15 @@ class MCPHandlers:
 
                 limited_skills: list[SkillItem] = []
                 for s in skills:
+                    content = getattr(s, "insight", None) or getattr(s, "issue", None)
                     limited_skills.append(
                         SkillItem(
                             id=getattr(s, "id", str(len(limited_skills))),
-                            content=getattr(s, "content", str(s)),
+                            content=content if content is not None else str(s),
                             topic=getattr(s, "section", None),
-                            helpful=getattr(s, "helpful", None),
-                            harmful=getattr(s, "harmful", None),
-                            neutral=getattr(s, "neutral", None),
+                            helpful=getattr(s, "helpful_count", None),
+                            harmful=getattr(s, "harmful_count", None),
+                            neutral=getattr(s, "neutral_count", None),
                         )
                     )
 

@@ -77,11 +77,12 @@ async def test_handle_skillbook_get(handlers, registry):
         runner = MagicMock()
         mock_skill = MagicMock()
         mock_skill.id = "k1"
-        mock_skill.content = "cont"
+        mock_skill.insight = "cont"
+        mock_skill.issue = "cont"
         mock_skill.section = "test"
-        mock_skill.helpful = 1
-        mock_skill.harmful = 0
-        mock_skill.neutral = 0
+        mock_skill.helpful_count = 1
+        mock_skill.harmful_count = 0
+        mock_skill.neutral_count = 0
         runner.skillbook.skills.return_value = [mock_skill]
         runner.skillbook.stats.return_value = {"skills": 1}
         mock_runner_cls.from_model.return_value = runner

@@ -41,9 +41,7 @@ class MockSkillManager:
         return SkillManagerOutput(
             update=UpdateBatch(
                 reasoning="r",
-                operations=[
-                    UpdateOperation(type="ADD", section="learned", content="c")
-                ],
+                operations=[UpdateOperation(type="ADD", section="learned", issue="c")],
             ),
         )
 

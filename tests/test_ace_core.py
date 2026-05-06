@@ -32,39 +32,38 @@ class TestSkillbookCRUD:
         assert skill.keywords == ["math"]
         assert skill.issue == "Use division for fractions"
         assert skill.insight == "Use division for fractions"
-        assert skill.content == "Use division for fractions"
         assert sb.get_skill(skill.id) is skill
 
     def test_add_skill_custom_id(self):
         sb = Skillbook()
-        skill = sb.add_skill("math", "content", skill_id="custom-001")
+        skill = sb.add_skill("math", "issue", skill_id="custom-001")
         assert skill.id == "custom-001"
         assert sb.get_skill("custom-001") is skill
 
     def test_update_skill(self):
         sb = Skillbook()
         skill = sb.add_skill("math", "old content")
-        updated = sb.update_skill(skill.id, content="new content")
+        updated = sb.update_skill(skill.id, insight="new content")
         assert updated is not None
-        assert updated.content == "new content"
+        assert updated.insight == "new content"
 
     def test_update_nonexistent_skill(self):
         sb = Skillbook()
-        assert sb.update_skill("missing-id", content="x") is None
+        assert sb.update_skill("missing-id", insight="x") is None
 
     def test_remove_skill_hard(self):
         sb = Skillbook()
-        skill = sb.add_skill("math", "content")
+        skill = sb.add_skill("math", "issue")
         sb.remove_skill(skill.id, soft=False)
         assert sb.get_skill(skill.id) is None
         assert len(sb.skills()) == 0
 
     def test_remove_skill_soft(self):
         sb = Skillbook()
-        skill = sb.add_skill("math", "content")
+        skill = sb.add_skill("math", "issue")
         sb.remove_skill(skill.id)
         assert sb.get_skill(skill.id) is not None
-        assert skill.status == "invalid"
+        assert skill.active is False
         assert len(sb.skills()) == 0  # active only
         assert len(sb.skills(include_invalid=True)) == 1
 
@@ -103,15 +102,15 @@ class TestSkillbookSerialization:
         restored = Skillbook.from_dict(data)
 
         assert len(restored.skills()) == 2
-        assert restored.get_skill("math-001").content == "content A"
-        assert restored.get_skill("writing-001").content == "content B"
+        assert restored.get_skill("math-001").issue == "content A"
+        assert restored.get_skill("writing-001").issue == "content B"
 
     def test_json_round_trip(self):
         sb = Skillbook()
         sb.add_skill("sec", "content", skill_id="sec-001")
         json_str = sb.dumps()
         restored = Skillbook.loads(json_str)
-        assert restored.get_skill("sec-001").content == "content"
+        assert restored.get_skill("sec-001").issue == "content"
 
     def test_file_round_trip(self, tmp_path):
         sb = Skillbook()
@@ -119,7 +118,7 @@ class TestSkillbookSerialization:
         path = str(tmp_path / "sb.json")
         sb.save_to_file(path)
         restored = Skillbook.load_from_file(path)
-        assert restored.get_skill("sec-001").content == "content"
+        assert restored.get_skill("sec-001").issue == "content"
 
     def test_load_nonexistent_file(self):
         with pytest.raises(FileNotFoundError):
@@ -160,8 +159,8 @@ class TestSkillbookSerialization:
         skill = sb.get_skill("s1")
         assert skill is not None
         assert skill.embedding is None
-        assert skill.status == "active"
-        assert skill.sources == []
+        assert skill.active is True
+        assert skill.occurrences == []
 
     def test_sources_round_trip(self):
         sb = Skillbook()
@@ -183,9 +182,9 @@ class TestSkillbookSerialization:
         skill = restored.get_skill("api-001")
 
         assert skill is not None
-        assert skill.sources[0].trace_id == "conv-123"
-        assert skill.sources[0].epoch == 1
-        assert skill.sources[0].sample_question == "Why did pagination stop early?"
+        assert skill.occurrences[0].trace_id == "conv-123"
+        assert skill.occurrences[0].epoch == 1
+        assert skill.occurrences[0].sample_question == "Why did pagination stop early?"
 
     def test_source_summary_and_filter_include_trace_identity(self):
         sb = Skillbook()
@@ -229,7 +228,7 @@ class TestSkillbookSerialization:
 
         skill = sb.get_skill("api-001")
         assert skill is not None
-        assert len(skill.sources) == 1
+        assert len(skill.occurrences) == 1
 
     def test_add_skill_accepts_multiple_sources(self):
         sb = Skillbook()
@@ -256,9 +255,9 @@ class TestSkillbookSerialization:
 
         skill = sb.get_skill("api-001")
         assert skill is not None
-        assert len(skill.sources) == 2
-        assert skill.sources[0].trace_id == "trace-001"
-        assert skill.sources[1].trace_id == "trace-002"
+        assert len(skill.occurrences) == 2
+        assert skill.occurrences[0].trace_id == "trace-001"
+        assert skill.occurrences[1].trace_id == "trace-002"
 
 
 # ------------------------------------------------------------------ #
@@ -271,13 +270,11 @@ class TestSkillbookUpdates:
         sb = Skillbook()
         batch = UpdateBatch(
             reasoning="test",
-            operations=[
-                UpdateOperation(type="ADD", section="math", content="new skill")
-            ],
+            operations=[UpdateOperation(type="ADD", section="math", issue="new skill")],
         )
         sb.apply_update(batch)
         assert len(sb.skills()) == 1
-        assert sb.skills()[0].content == "new skill"
+        assert sb.skills()[0].issue == "new skill"
 
     def test_apply_update(self):
         sb = Skillbook()
@@ -288,18 +285,18 @@ class TestSkillbookUpdates:
                 UpdateOperation(
                     type="UPDATE",
                     section="math",
-                    content="new",
+                    insight="new",
                     skill_id="math-001",
                 )
             ],
         )
         sb.apply_update(batch)
-        assert skill.content == "new"
+        assert skill.insight == "new"
 
     def test_apply_tag_is_noop(self):
         """TAG operations are accepted but no longer modify skills."""
         sb = Skillbook()
-        sb.add_skill("math", "content", skill_id="math-001")
+        sb.add_skill("math", "issue", skill_id="math-001")
         batch = UpdateBatch(
             reasoning="test",
             operations=[
@@ -316,7 +313,7 @@ class TestSkillbookUpdates:
 
     def test_apply_remove(self):
         sb = Skillbook()
-        sb.add_skill("math", "content", skill_id="math-001")
+        sb.add_skill("math", "issue", skill_id="math-001")
         batch = UpdateBatch(
             reasoning="test",
             operations=[
@@ -334,7 +331,7 @@ class TestSkillbookUpdates:
         batch = UpdateBatch(
             reasoning="test",
             operations=[
-                UpdateOperation(type="UPDATE", section="math", content="x"),
+                UpdateOperation(type="UPDATE", section="math", insight="x"),
                 UpdateOperation(type="TAG", section="math", metadata={"helpful": 1}),
                 UpdateOperation(type="REMOVE", section="math"),
             ],
@@ -368,7 +365,7 @@ class TestSkillbookThreadSafety:
                 for _ in range(n_update):
                     skills = sb.skills()
                     if skills:
-                        sb.update_skill(skills[0].id, content="updated")
+                        sb.update_skill(skills[0].id, insight="updated")
             except Exception as e:
                 errors.append(e)
 
@@ -393,8 +390,8 @@ class TestSkillbookThreadSafety:
         batch = UpdateBatch(
             reasoning="test",
             operations=[
-                UpdateOperation(type="ADD", section="sec", content="a"),
-                UpdateOperation(type="ADD", section="sec", content="b"),
+                UpdateOperation(type="ADD", section="sec", issue="a"),
+                UpdateOperation(type="ADD", section="sec", issue="b"),
             ],
         )
         sb.apply_update(batch)
@@ -413,7 +410,7 @@ class TestSkillbookView:
         view = SkillbookView(sb)
 
         assert len(view) == 1
-        assert view.get_skill("m-001").content == "content"
+        assert view.get_skill("m-001").issue == "content"
         assert len(view.skills()) == 1
         assert "skills" in view.stats()
 
@@ -493,18 +490,18 @@ class TestACEStepContext:
 class TestUpdateOperationParsing:
     def test_from_json_add(self):
         op = UpdateOperation.from_json(
-            {"type": "ADD", "section": "math", "content": "skill content"}
+            {"type": "ADD", "section": "math", "issue": "skill content"}
         )
         assert op.type == "ADD"
         assert op.section == "math"
-        assert op.content == "skill content"
+        assert op.issue == "skill content"
 
     def test_from_json_parses_reflection_index(self):
         op = UpdateOperation.from_json(
             {
                 "type": "ADD",
                 "section": "math",
-                "content": "skill content",
+                "issue": "skill content",
                 "learning_index": 1,
                 "reflection_index": 2,
                 "reflection_indices": [0, 2],
@@ -539,8 +536,8 @@ class TestUpdateOperationParsing:
             {
                 "reasoning": "test reasoning",
                 "operations": [
-                    {"type": "ADD", "section": "a", "content": "x"},
-                    {"type": "ADD", "section": "b", "content": "y"},
+                    {"type": "ADD", "section": "a", "issue": "x"},
+                    {"type": "ADD", "section": "b", "issue": "y"},
                 ],
             }
         )
@@ -550,7 +547,7 @@ class TestUpdateOperationParsing:
     def test_batch_round_trip(self):
         batch = UpdateBatch(
             reasoning="r",
-            operations=[UpdateOperation(type="ADD", section="s", content="c")],
+            operations=[UpdateOperation(type="ADD", section="s", issue="c")],
         )
         data = batch.to_json()
         restored = UpdateBatch.from_json(data)

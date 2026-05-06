@@ -75,7 +75,7 @@ class MockSkillManager:
         progress: str,
         **kwargs: Any,
     ) -> SkillManagerOutput:
-        skill = skillbook.add_skill(section="learned", content="mock skill")
+        skill = skillbook.add_skill(section="learned", issue="mock skill")
         return SkillManagerOutput(
             update=UpdateBatch(
                 reasoning="mock update",
@@ -83,7 +83,7 @@ class MockSkillManager:
                     UpdateOperation(
                         type="ADD",
                         section="learned",
-                        content="mock skill",
+                        issue="mock skill",
                         skill_id=skill.id,
                     )
                 ],

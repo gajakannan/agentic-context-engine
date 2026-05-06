@@ -272,7 +272,8 @@ class TestOpenClawEndToEnd:
         add_op = UpdateOperation(
             type="ADD",
             section="debugging",
-            content="Use structured logging for better debug traces",
+            issue="Use structured logging for better debug traces",
+            insight="Use structured logging for better debug traces",
             skill_id=None,
             metadata={"helpful": 1, "harmful": 0, "neutral": 0},
         )
@@ -302,7 +303,7 @@ class TestOpenClawEndToEnd:
         assert len(skillbook.skills()) == 1
         skill = skillbook.skills()[0]
         assert skill.section == "context"
-        assert "structured logging" in skill.content
+        assert "structured logging" in skill.insight
 
     def test_empty_session_skipped(self, tmp_path: Path):
         """Empty JSONL should produce empty trace."""
