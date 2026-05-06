@@ -95,4 +95,5 @@ Key design docs:
 | `ACEClaudeCode` | Claude Code CLI | Coding tasks with learning |
 
 NEVER USE FALLBACKS OR IMPLEMENT THINGS I NEVER ASKED FOR. 
-IF IT'S STRAIGHFORWARD, IMPLEMENT IT STRAIGHFORWARD.
+
+Keep your answers concise and to the point. If you don't know something, say you don't know instead of making assumptions or fabricating information. Always ask clarifying questions if the user's request is ambiguous or lacks necessary details.
