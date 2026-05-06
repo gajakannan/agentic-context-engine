@@ -131,7 +131,7 @@ class SkillManager(RecursiveAgent):
         skillbook: Skillbook,
         question_context: str,
         progress: str,
-        source: InsightSource,
+        source: InsightSource | None = None,
         injected_skill_ids: tuple[str, ...] = (),
         **kwargs: Any,
     ) -> SkillManagerOutput:
@@ -147,6 +147,7 @@ class SkillManager(RecursiveAgent):
             question_context: Description of the task domain.
             progress: Current progress summary (e.g. ``"5/10 correct"``).
             source: Base provenance record for the current learning trace.
+                If ``None``, mutations are recorded without provenance.
             injected_skill_ids: Skills rendered into the Agent's prompt
                 this run — the tagging scope surfaced to the agent.
             **kwargs: Accepted for protocol compatibility but not
