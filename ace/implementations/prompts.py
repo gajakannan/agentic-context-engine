@@ -409,8 +409,16 @@ similar skill exists, prefer UPDATE.
 - If search_skills shows the same issue across multiple domains, UPDATE the existing \
 skill with a broader issue statement and refreshed keywords instead of adding another \
 duplicate.
-- Counters live on skills. Retrieve them via read_skill / search_skills. If a \
-skill's harmful_count reaches 3 or more while you are investigating it, REMOVE it.
+- When deciding to broaden via UPDATE, compare the existing skill's `issue` / `insight` \
+(read via read_skill) against the current reflection. If both target the same root \
+cause but in different niches, rewrite `issue` so it covers both — the prior niche AND \
+the current one — without losing specificity. `occurrences` is supporting context, not \
+the trigger; the trigger is conceptual overlap visible in the skill content itself.
+- Counters live on skills. Retrieve them via read_skill / search_skills. Use them \
+as one input among several when judging a skill — never as a hard removal trigger. \
+A heavily-used skill can legitimately accumulate harmful_count while still being \
+net-positive. REMOVE only when the reflection's evidence shows the skill is \
+consistently misleading or unsalvageable.
 - You decide helpful / harmful / neutral for each skill in `injected_skill_ids` \
 from the outcome + reflection. Call tag_skill with delta +1 (helpful), -1 (harmful), \
 or 0 (neutral) for skills you have evidence about. Do not tag skills you have no \
@@ -454,8 +462,9 @@ Skip skills with no evidence.
 exists, call add_skill with `section`, `issue`, `keywords`, and `insight` when needed.
 4. For improvements to existing skills: call update_skill with a rewritten `issue` \
 and updated `keywords`; include `insight` when the actionable guidance should change.
-5. For skills with harmful_count >= 3 encountered during investigation: call \
-remove_skill with a clear reason.
+5. If the reflection's evidence shows a skill is consistently misleading or \
+unsalvageable, call remove_skill with a clear reason. Do not remove based on \
+harmful_count alone.
 6. When done, produce your structured output summarizing your reasoning.
 </workflow>
 
