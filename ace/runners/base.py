@@ -33,7 +33,7 @@ class ACERunner:
 
         from ace import Pipeline, ACERunner, AgentStep, learning_tail
 
-        pipe = Pipeline([AgentStep(agent), *learning_tail(reflector, sm, sb)])
+        pipe = Pipeline([AgentStep(agent, sb), *learning_tail(reflector, sm, sb)])
         runner = ACERunner(pipeline=pipe, skillbook=sb)
 
     Attributes:

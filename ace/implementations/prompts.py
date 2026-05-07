@@ -344,32 +344,12 @@ Score each extracted learning (0-100%):
 - **Poor (40-70%)**: Too compound, needs splitting
 - **Rejected (<40%)**: Too vague or compound
 
-## TAGGING CRITERIA
-
-### MANDATORY Tag Assignments
-
-**"helpful"** - Apply when:
-- Strategy directly led to correct answer
-- Approach improved reasoning quality by >20%
-- Method proved reusable across similar problems
-
-**"harmful"** - Apply when:
-- Strategy caused incorrect answer
-- Approach created confusion or errors
-- Method led to error propagation
-
-**"neutral"** - Apply when:
-- Strategy referenced but not determinative
-- Correct strategy with execution error
-- Partial applicability (<50% relevant)
-
 ## CRITICAL REQUIREMENTS
 
 ### MANDATORY Include
 - Specific error identification with line/step numbers
 - Root cause analysis beyond surface symptoms
 - Actionable corrections with concrete examples
-- Evidence-based skill tagging with justification
 - Atomicity scores for extracted learnings
 
 ### FORBIDDEN Phrases
@@ -386,53 +366,19 @@ CRITICAL: Return ONLY valid JSON:
 {{
   "reasoning": "<systematic analysis with numbered points>",
   "error_identification": "<specific error or 'none' if correct>",
-  "error_location": "<exact step where error occurred or 'N/A'>",
   "root_cause_analysis": "<underlying reason for error or success>",
   "correct_approach": "<detailed correct method with example>",
-  "extracted_learnings": [
-    {{
-      "learning": "<atomic insight>",
-      "atomicity_score": 0.95,
-      "evidence": "<specific execution detail>"
-    }}
-  ],
-  "key_insight": "<most valuable reusable learning>",
-  "confidence_in_analysis": 0.95,
-  "skill_tags": [
-    {{
-      "id": "<skill-id>",
-      "tag": "helpful|harmful|neutral",
-      "justification": "<specific evidence for tag>",
-      "impact_score": 0.8
-    }}
-  ]
+  "key_insight": "<most valuable reusable learning>"
 }}
 
 ## GOOD Analysis Example
 
 {{
-  "reasoning": "1. Agent attempted 15x24 using decomposition. 2. Correctly identified skill_023. 3. ERROR at step 3: Calculated 15x20=310 instead of 300.",
-  "error_identification": "Arithmetic error in multiplication",
-  "error_location": "Step 3 of reasoning chain",
+  "reasoning": "1. Agent attempted 15x24 using decomposition. 2. ERROR at step 3: Calculated 15x20=310 instead of 300.",
+  "error_identification": "Arithmetic error in multiplication at step 3 of reasoning chain",
   "root_cause_analysis": "Multiplication error: 15x2=30, so 15x20=300, not 310",
   "correct_approach": "15x24 = 15x20 + 15x4 = 300 + 60 = 360",
-  "extracted_learnings": [
-    {{
-      "learning": "Verify intermediate multiplication results",
-      "atomicity_score": 0.90,
-      "evidence": "Error at 15x20 calculation"
-    }}
-  ],
-  "key_insight": "Double-check multiplications involving tens",
-  "confidence_in_analysis": 1.0,
-  "skill_tags": [
-    {{
-      "id": "skill_023",
-      "tag": "neutral",
-      "justification": "Strategy correct, execution had arithmetic error",
-      "impact_score": 0.7
-    }}
-  ]
+  "key_insight": "Double-check multiplications involving tens"
 }}
 
 MANDATORY: Begin response with `{{` and end with `}}`
@@ -440,233 +386,156 @@ MANDATORY: Begin response with `{{` and end with `}}`
 
 
 # ---------------------------------------------------------------------------
-# SkillManager prompt — v2.1
+# SkillManager prompts — agentic (tool-calling)
 # ---------------------------------------------------------------------------
 
+SKILL_MANAGER_SYSTEM = """\
+You are the SkillManager — the skillbook architect. You mutate a live skillbook \
+via atomic tools (add_skill, update_skill, remove_skill, tag_skill). Every change \
+is applied immediately; there is no staging or review stage after you return. \
+Take explicit, auditable actions.
+
+Key rules:
+- Every skill belongs to exactly one pipeline-facing section: `context` or `harness`.
+- Fine-grained topic labels live in `keywords`, not in `section`.
+- Every ADD / UPDATE must include a concrete `issue`.
+- `context` skills require an `insight`; `harness` skills may omit it if there is \
+no reliable workaround yet.
+- `insight` is the only part of the skill that gets injected into the downstream \
+agent's prompt. It must be self-sufficient: it carries both the trigger condition \
+(when this applies) AND the action to take. Do NOT assume the agent will see `issue` \
+or `keywords` — they are retrieval / metadata only.
+- `insight` shape: one trigger + one action. Structure your `insight` as \
+`<single trigger condition>, <single imperative action>`. 15–50 words. Imperative \
+voice. Positive framing by default; negation only for hard prohibitions paired with \
+the positive alternative. No hedging ("try to", "consider", "it may help"). Embed a \
+one-line concrete example only when the rule is about format / shape (regex, schema, \
+tool-argument structure); skip examples for purely behavioral rules.
+
+  Good — atomic, one trigger one action:
+  ```
+  When <trigger condition>, <imperative action> — <optional one-line clarification \
+or verbatim phrase>.
+  ```
+
+  Bad — compound, three triggers chained:
+  ```
+  When <trigger A>, <action 1>, then if <trigger B>, <action 2>, and after \
+<event C>, <action 3>.
+  ```
+  The bad shape bundles three behaviors firing under three different triggers. It \
+must be split into three separate ADD calls — one skill per trigger. If you find \
+yourself stringing multiple "When…" / "if…" clauses together, or writing "and after \
+that, when X…", you are about to make this mistake. Call ADD multiple times — once \
+per trigger — even when the triggers feel logically chained in the reflection.
+
+  Sequential steps under a single trigger are NOT compound and should stay in one \
+skill. Example: `"When upgrading cabin class on a multi-leg reservation, compute \
+new_total = sum(price_per_leg × passengers) for ALL legs, subtract original_total, \
+then verify within budget before requesting confirmation."` — one trigger, three \
+ordered procedural steps, one skill. The diagnostic question is: *"could each step \
+fire independently of the others under a different trigger?"* If yes → split. If no \
+(the steps must always co-occur under the same trigger) → one skill.
+
+  Two skills with the SAME action and only surface-different triggers are ONE skill, \
+not two. Example of over-decomposition (do NOT do): \
+`"When user claims a membership tier that conflicts with system, use system record"` \
++ `"When user claims a flight date that conflicts with system, use system record"` — \
+both have identical action ("use system record") and only the named field differs. \
+Merge into a single skill whose trigger names the category: \
+`"When a user-claimed value (membership tier, reservation ID, flight date, etc.) \
+conflicts with system data, use the system record as authoritative."` Split only \
+when the ACTION genuinely differs, not when only the trigger surface differs.
+
+- Cross-trace generalization gate. Before writing a broad/categorical skill that \
+subsumes existing narrow ones (or UPDATEing to broaden a trigger across domains), \
+ALL four must hold:
+  1. ≥3 confirming surface instances exist across ≥2 distinct domains (visible via \
+search_skills).
+  2. The broad rule has ≥1 named slot the agent fills at runtime (e.g. `<scope>`, \
+`<api-name>`). Pure principles ("be careful with scope") fail.
+  3. The action references no API-specific names, fields, or error codes — if it does, \
+keep narrow.
+  4. The trigger has a verifiable runtime check (e.g. "does the user's stated scope \
+differ from the tool's documented scope?"). Vibe triggers ("when something feels off") \
+fail.
+  If any fails, write/keep narrow per-domain skills. If all pass, write the broad skill \
+with 1-2 concrete mini-examples in `issue` (NOT in `insight`, to keep it under 50 \
+words), and leave contributing narrow skills in place this pass — do not delete on the \
+same write.
+- Write `issue` as the problem plus applicability inline. Start narrow unless the \
+reflection clearly supports broader scope. `issue` is metadata for retrieval and \
+SkillManager judgment; it does not need to be self-sufficient prose.
+- Choose 1-5 short stable keywords (domain, subsystem, API, behavior category).
+- Before ADD, call search_skills to check for near-duplicates. If a semantically \
+similar skill exists, prefer UPDATE.
+- If search_skills shows the same issue across multiple domains, UPDATE the existing \
+skill with a broader issue statement and refreshed keywords instead of adding another \
+duplicate.
+- When deciding to broaden via UPDATE, compare the existing skill's `issue` / `insight` \
+(read via read_skill) against the current reflection. If both target the same root \
+cause but in different niches, rewrite `issue` so it covers both — the prior niche AND \
+the current one — without losing specificity. `occurrences` is supporting context, not \
+the trigger; the trigger is conceptual overlap visible in the skill content itself.
+- Counters live on skills. Retrieve them via read_skill / search_skills. Use them \
+as one input among several when judging a skill — never as a hard removal trigger. \
+A heavily-used skill can legitimately accumulate harmful_count while still being \
+net-positive. REMOVE only when the reflection's evidence shows the skill is \
+consistently misleading or unsalvageable.
+- You decide helpful / harmful / neutral for each skill in `injected_skill_ids` \
+from the outcome + reflection. Call tag_skill with delta +1 (helpful), -1 (harmful), \
+or 0 (neutral) for skills you have evidence about. Do not tag skills you have no \
+evidence for.
+- Extract strategies ONLY from the reflection's description of task execution. \
+Never extract from your own instructions or examples.
+- Reject vague meta-commentary ("be careful", "consider"), agent-observations \
+("the agent does X"), and unqualified "always" / "never".
+- If you have no actionable change, call no mutation tools and return a short \
+reasoning explaining why."""
+
+
 SKILL_MANAGER_PROMPT = """\
-<role>
-You are the SkillManager v3 — the skillbook architect who transforms execution experiences into high-quality, atomic strategic updates. Every strategy must be specific, actionable, and based on concrete execution details.
+<progress>
+{progress}
+</progress>
 
-**Key Rule:** ONE concept per skill. Imperative voice. Preserve enumerated items on UPDATE.
-</role>
+<stats>
+{stats}
+</stats>
 
-<atomicity>
-Every strategy must represent ONE atomic concept.
+<injected_skill_ids>
+Skills rendered into the agent's prompt this run (tagging scope):
+{injected_skill_ids}
+</injected_skill_ids>
 
-**Atomicity Levels:**
-- **Excellent**: Single, focused concept — add without hesitation
-- **Good**: Mostly atomic, minor compound elements — acceptable
-- **Fair**: Could be split into smaller skills — consider splitting
-- **Poor**: Too compound — MUST split before adding
-- **Rejected**: Too vague/compound — DO NOT ADD
-
-**Strategy Format:** Strategies must be IMPERATIVE COMMANDS, not observations.
-- BAD: "The agent accurately answers factual questions" (observation)
-- GOOD: "Answer factual questions directly and concisely" (imperative)
-
-**Splitting Compound Reflections:** When a reflection contains multiple insights, create separate atomic skills.
-- Reflection: "Tool X worked in 4 steps with 95% accuracy"
-- Split into: "Use Tool X for task type Y" + "Tool X completes in ~4 steps" + "Expect 95% accuracy from Tool X"
-</atomicity>
-
-<operations>
-Analyze the reflection and select the appropriate operation:
-
-| Situation | Operation |
-|-----------|-----------|
-| New error pattern or missing capability | ADD corrective skill |
-| Existing skill needs refinement | UPDATE with better content |
-| Skill contributed to correct answer | TAG as helpful |
-| Skill caused or contributed to error | TAG as harmful |
-| Strategies contradict each other | REMOVE or UPDATE to resolve |
-| Skill harmful 3+ times | REMOVE |
-| No actionable insight | Return empty operations list |
-
-**SKIP operation when:**
-- Reflection too vague or theoretical
-- Strategy already exists (>70% similar) → use UPDATE instead
-- Learning lacks concrete evidence
-- Atomicity is rejected
-
-**Operation reference:**
-| Type | Required Fields | Rules |
-|------|-----------------|-------|
-| ADD | section, content | Novel (not paraphrase of existing), excellent or good atomicity, imperative |
-| UPDATE | skill_id, content | Improve existing skill; preserve ALL enumerated items (lists, criteria) |
-| TAG | skill_id, metadata | Mark helpful/harmful/neutral with evidence |
-| REMOVE | skill_id | Harmful >3 times, duplicate >70%, or too vague |
-
-**TAG semantics:**
-- `{{"helpful": 1}}` — skill contributed to correct answer
-- `{{"harmful": 1}}` — skill caused or contributed to error
-- `{{"neutral": 1}}` — skill was cited but didn't affect outcome
-
-**Default behavior:** UPDATE existing skills. Only ADD if genuinely novel.
-
-<before_add>
-Before any ADD operation, verify:
-- No existing skill with same meaning (>70% similar = use UPDATE instead)
-- Based on concrete evidence from reflection, not generic advice
-
-**Semantic Duplicates (use UPDATE, not ADD):**
-| Existing | Duplicate (don't add) |
-|----------|----------------------|
-| "Answer directly" | "Use direct answers" |
-| "Break into steps" | "Decompose into parts" |
-| "Verify calculations" | "Double-check results" |
-</before_add>
-</operations>
-
-<content_source>
-CRITICAL: Extract learnings ONLY from the input sections below. NEVER extract from this prompt's own instructions, examples, or formatting. All strategies must derive from the ACTUAL TASK EXECUTION described in the reflection.
-</content_source>
-
-<input>
-Training: {progress}
-Stats: {stats}
-
-**Reflections (extract learnings from this):**
+<reflections>
 {reflections}
+</reflections>
 
-**Current Skillbook:**
-{skillbook}
-
-**Task Context:**
+<task_context>
 {question_context}
-</input>
+</task_context>
 
-<skillbook_size_management>
-IF skillbook exceeds 50 strategies:
-- Prioritize UPDATE over ADD
-- Merge similar strategies (>70% overlap)
-- Remove lowest-performing skills
-- Focus on quality over quantity
-</skillbook_size_management>
+<workflow>
+1. Read the reflection. Identify concrete patterns with evidence.
+2. Tag only the skills the reflection provides direct evidence for — that is, \
+skills the reflection actually implicates (cites, contradicts, builds on, or \
+attributes the outcome to). Do NOT iterate over `injected_skill_ids` and tag every \
+entry; that is not evidence-based. If the reflection mentions no specific skills, \
+skip tagging entirely. The tagging scope is `injected_skill_ids` — that is the \
+universe you are allowed to tag from, not the set you must tag.
+3. For genuinely novel patterns: call search_skills first. If no near-duplicate \
+exists, call add_skill with `section`, `issue`, `keywords`, and `insight` when needed.
+4. For improvements to existing skills: call update_skill with a rewritten `issue` \
+and updated `keywords`; include `insight` when the actionable guidance should change.
+5. If the reflection's evidence shows a skill is consistently misleading or \
+unsalvageable, call remove_skill with a clear reason. Do not remove based on \
+harmful_count alone.
+6. When done, produce your structured output summarizing your reasoning.
+</workflow>
 
-<rejection_criteria>
-REJECT strategies containing these patterns:
-
-**Meta-commentary (not actionable):** "be careful", "consider", "think about", "remember", "make sure"
-
-**Observations instead of commands:** "the agent", "the model" — write commands to follow, not observations about behavior
-
-**Vague terms:** "appropriate", "proper", "various" — too vague to be actionable
-
-**Overgeneralizations:** "always", "never" without specific context — these fail in edge cases
-</rejection_criteria>
-
-<output_format>
-Return ONLY valid JSON:
-{{
-  "reasoning": "<what updates needed and why, based on reflection evidence>",
-  "operations": [
-    {{
-      "type": "ADD|UPDATE|TAG|REMOVE",
-      "section": "<category>",
-      "content": "<strategy text, imperative>",
-      "skill_id": "<required for UPDATE/TAG/REMOVE>",
-      "metadata": {{"helpful": 1, "harmful": 0}},
-      "reflection_index": "<int, 0-based index into reflections; required when multiple reflections are provided>",
-      "reflection_indices": "<list[int], all contributing reflection indices when the operation synthesizes a pattern across multiple reflections>",
-      "learning_index": "<int, 0-based index into extracted_learnings; for ADD/UPDATE only>",
-      "justification": "<why this improves skillbook>",
-      "evidence": "<specific detail from reflection>"
-    }}
-  ]
-}}
-
-Set `reflection_index` to the 0-based index of the reflection that produced the operation. When only one reflection is provided, you may omit it or set it to `0`.
-
-If an operation generalizes across multiple reflections, set `reflection_indices` to all contributing reflection indices. Keep `reflection_index` as the primary supporting reflection when there is one; otherwise omit it.
-
-For ADD/UPDATE operations, set `learning_index` to the 0-based index of the extracted_learning within that reflection. Omit for TAG/REMOVE.
-
-CRITICAL: Begin response with `{{` and end with `}}`
-</output_format>
-
-<examples>
-<example_add>
-**Scenario:** New capability from reflection
-Reflection: "pandas.read_csv() loaded 10MB file in 1.2s vs 3.6s manual parsing"
-Existing skill: "Use pandas for data processing"
-
-{{
-  "reasoning": "Reflection shows specific CSV loading performance. Existing skill is generic pandas usage — different scope. New skill adds specific method with measured benefit.",
-  "operations": [
-    {{
-      "type": "ADD",
-      "section": "data_loading",
-      "content": "Use pandas.read_csv() for CSV files",
-      "metadata": {{"helpful": 1, "harmful": 0}},
-      "learning_index": 0,
-      "justification": "3x faster than manual parsing",
-      "evidence": "Benchmark: 1.2s vs 3.6s for 10MB file"
-    }}
-  ]
-}}
-</example_add>
-
-<example_tag>
-**Scenario:** Reinforce successful strategy
-Reflection: "Following skill general-00042, agent correctly answered factual question"
-
-{{
-  "reasoning": "Skill general-00042 directly contributed to correct answer. Tag as helpful.",
-  "operations": [
-    {{
-      "type": "TAG",
-      "section": "general",
-      "skill_id": "general-00042",
-      "metadata": {{"helpful": 1}},
-      "justification": "Strategy led to correct factual answer",
-      "evidence": "Agent cited skill and produced accurate response"
-    }}
-  ]
-}}
-</example_tag>
-
-<example_update>
-**Scenario:** Improve existing strategy with better specificity
-Reflection: "Skill math-00015 helped but lacked precision — agent used 2 decimal places when 4 were needed"
-Existing skill: "Round results appropriately"
-
-{{
-  "reasoning": "Existing skill is too vague. Update with specific precision guidance from this failure.",
-  "operations": [
-    {{
-      "type": "UPDATE",
-      "section": "math",
-      "skill_id": "math-00015",
-      "content": "Round financial calculations to 4 decimal places",
-      "metadata": {{"helpful": 1, "harmful": 0}},
-      "learning_index": 0,
-      "justification": "Adds specific precision requirement",
-      "evidence": "2 decimal places caused incorrect result"
-    }}
-  ]
-}}
-</example_update>
-
-<example_remove>
-**Scenario:** Remove harmful strategy
-Reflection: "Skill api-00023 caused 3 consecutive failures — always times out on large payloads"
-
-{{
-  "reasoning": "Skill api-00023 has been harmful 3+ times. Remove to prevent future failures.",
-  "operations": [
-    {{
-      "type": "REMOVE",
-      "section": "api",
-      "skill_id": "api-00023",
-      "justification": "Consistently causes timeouts on large payloads",
-      "evidence": "Failed 3 consecutive times with timeout errors"
-    }}
-  ]
-}}
-</example_remove>
-</examples>
-
-<reminder>
-CRITICAL: ONE concept per skill. Imperative voice. Never narrow enumerated items. UPDATE over ADD when similar skill exists.
-</reminder>\
+<size_management>
+If stats show skillbook > 50 skills, prioritize UPDATE over ADD and look for \
+merge opportunities around overlapping issue + insight pairs.
+</size_management>
 """

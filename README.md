@@ -168,7 +168,7 @@ ACE + Claude Code translated this library from Python to TypeScript with zero su
 ACE is built on a composable pipeline engine. Each step declares what it requires and what it produces:
 
 ```
-AgentStep -> EvaluateStep -> ReflectStep -> UpdateStep -> ApplyStep -> DeduplicateStep
+AgentStep -> EvaluateStep -> ReflectStep -> UpdateStep -> DeduplicateStep
 ```
 
 Use `learning_tail()` for the standard learning sequence, or compose custom pipelines:
@@ -176,7 +176,7 @@ Use `learning_tail()` for the standard learning sequence, or compose custom pipe
 ```python
 from ace import Pipeline, AgentStep, EvaluateStep, learning_tail
 
-steps = [AgentStep(agent), EvaluateStep(env)] + learning_tail(reflector, skill_manager, skillbook)
+steps = [AgentStep(agent, skillbook), EvaluateStep(env)] + learning_tail(reflector, skill_manager, skillbook)
 pipeline = Pipeline(steps)
 ```
 

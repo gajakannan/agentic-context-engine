@@ -10,7 +10,7 @@ to RRStep via a thin adapter step, so the sandbox
 receives the full conversation data.
 
 TraceAnalyser handles the rest of the learning-tail pipeline:
-    [RRTraceStep] → UpdateStep → ApplyStep
+    [RRTraceStep] → UpdateStep  (the agentic SkillManager mutates directly)
 
 Usage:
     python recursive_agentic_system_prompting.py /path/to/traces
@@ -45,20 +45,20 @@ _handler = logging.StreamHandler()
 _handler.setFormatter(
     logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
 )
-_logger = logging.getLogger("ace.rr")
+_logger = logging.getLogger("ace.steps.rr")
 _logger.setLevel(logging.DEBUG)
 _logger.addHandler(_handler)
 
 from pipeline import Pipeline
 
 from ace import TraceAnalyser, SkillManager, Skillbook
-from ace.rr import RRStep, RRConfig
+from ace.steps.rr_step import RRStep, RRConfig
 from ace.core.context import ACEStepContext
 from ace.deduplication import DeduplicationManager
 from ace.protocols.deduplication import DeduplicationConfig
 from ace.implementations.prompts import wrap_skillbook_for_external_agent
-from ace.steps import UpdateStep, ApplyStep, DeduplicateStep
-from ace.rr.prompts import REFLECTOR_RECURSIVE_PROMPT
+from ace.steps import UpdateStep, DeduplicateStep
+from ace.implementations.rr.prompts import REFLECTOR_RECURSIVE_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -182,9 +182,7 @@ def main():
     rr = RRStep(
         args.model,
         config=RRConfig(
-            subagent_model="bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0",
-            max_iterations=60,
-            max_llm_calls=60,
+            max_requests=60,
         ),
         prompt_template=REFLECTOR_RECURSIVE_PROMPT,
     )
@@ -197,12 +195,13 @@ def main():
         )
     )
 
-    # Build pipeline: RRTraceStep → Update → Apply → Dedup
+    # Build pipeline: RRTraceStep → Update → Dedup
+    # (SkillManager mutates the skillbook directly via its tools, so no
+    # separate ApplyStep is needed.)
     steps: list[Any] = [RRTraceStep(rr)]
     steps.extend(
         [
-            UpdateStep(skill_manager),
-            ApplyStep(skillbook),
+            UpdateStep(skill_manager, skillbook),
             DeduplicateStep(dedup, skillbook),
         ]
     )

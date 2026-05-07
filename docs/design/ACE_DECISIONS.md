@@ -31,7 +31,7 @@ ACE had three hand-rolled LLM client implementations (LiteLLMClient, InstructorC
 ### What we kept
 
 - **Pipeline engine** (`pipeline/`) — `requires`/`provides` contracts, `async_boundary`, per-step `max_workers`, `SampleResult` error isolation. No framework offers this combination.
-- **Skillbook & learning loop** — Reflect → Tag → Update → Apply → Deduplicate. This is core IP.
+- **Skillbook & learning loop** — Reflect → Update → Apply → Deduplicate. This is core IP.
 - **Step composition** — `learning_tail()`, pipeline-as-step nesting, `SkillbookView` read/write split.
 - **Domain-specific prompts** — tightly coupled to skillbook format and ACE's reflection strategy.
 - **All pipeline steps** — they depend on protocols, not implementations. Completely unchanged.
@@ -80,8 +80,11 @@ Having the runner own checkpoint logic (via `run()` parameters) was considered. 
 **Mutable Skillbook directly on the context:**
 Storing the real `Skillbook` as a field on `ACEStepContext` was the initial design. Rejected — `StepContext` is frozen, but `Skillbook` is mutable. Placing it on the context creates the illusion of immutability while allowing any step to mutate shared state through the reference. Instead, the context carries a `SkillbookView` (read-only projection). Write steps receive the real `Skillbook` via constructor injection.
 
-**Combined Reflect+Tag and Update+Apply steps:**
-Keeping ReflectStep as both reflection and tagging, and UpdateStep as both generation and application was considered. Rejected — each combination mixes a pure function (LLM call) with a side effect (skillbook mutation). Splitting means pure steps can be tested without a skillbook, side-effect steps can be tested without an LLM.
+**Injection is ground truth; citation dropped.**
+Earlier the Agent "cited" skills by writing `[skill-id]` markers in its reasoning, the Reflector scanned the text to produce `skill_tags`, and the SkillManager consumed those tags. Rejected — citation scanning does not scale: it is fragile (regex over free-form text), biased (agents forget to cite skills they used), and asks the Reflector to dictate downstream state mutation. Replaced with injection-based attribution: the `AgentStep` records `ctx.injected_skill_ids` (the set of active skills rendered into the agent prompt) and bumps `used_count` on each skill. The SkillManager — not the Reflector — now decides helpful/harmful/neutral per injected skill, using atomic `tag_skill` / `remove_skill` tool calls against the real Skillbook. The Reflector produces pure analysis; `skill_tags` and the `SkillTag` output type were removed.
+
+**SkillManager mutates directly; Reflector is analysis-only.**
+The old SkillManager was a one-shot PydanticAI agent that emitted an `UpdateBatch` of planned operations, and a separate `ApplyStep` applied them to the skillbook. Rejected — two-phase (plan → apply) forced the LLM to commit to decisions without inspecting the skillbook, and serialisation of operations meant the agent could not dedupe-before-ADD, inspect counters, or sandbox-verify candidate strategies. Replaced with an agentic SkillManager built on `RecursiveAgent` with atomic mutation tools (`add_skill`, `update_skill`, `remove_skill`, `tag_skill`) and read-only inspection tools (`search_skills`, `read_skill`). Tools operate on the real `Skillbook` immediately — there is no staging. `ApplyStep` was deleted; `UpdateStep` is the sole SM invocation and the skillbook is already mutated when it returns. `SkillManagerOutput` now carries a post-hoc audit trail of the operations the tools executed, not a plan to be applied. `UpdateStep.max_workers=1` is preserved and now guards the mutation critical section in addition to serialising LLM calls. `AgenticConfig.max_requests` controls loop budget; `max_requests=1` approximates the old one-shot behaviour. `UpdateBatch` / `apply_update` / `_apply_operation` are retained for offline reconstruction and tests but the online path no longer flows through them.
 
 **Instructor auto-wrapping in implementations:**
 The old `ace/roles.py` auto-wrapped LLM clients with Instructor if `complete_structured` was missing. Rejected — PydanticAI handles structured output natively via its `result_type` parameter.

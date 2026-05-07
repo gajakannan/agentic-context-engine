@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from .integrations import wrap_skillbook_context
     from .protocols import DeduplicationConfig
     from .providers import ACEModelConfig, ModelConfig
-    from .rr import RRConfig, RRStep
+    from .steps.rr_step import RRConfig, RRStep
     from .tracing import configure as configure_tracing
     from .runners import (
         ACE,
@@ -45,8 +45,6 @@ if TYPE_CHECKING:
     )
     from .steps import (
         AgentStep,
-        ApplyStep,
-        AttachInsightSourcesStep,
         CheckpointStep,
         DeduplicateStep,
         EvaluateStep,
@@ -108,8 +106,6 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "EvaluateStep": ("ace.steps", "EvaluateStep"),
     "ReflectStep": ("ace.steps", "ReflectStep"),
     "UpdateStep": ("ace.steps", "UpdateStep"),
-    "AttachInsightSourcesStep": ("ace.steps", "AttachInsightSourcesStep"),
-    "ApplyStep": ("ace.steps", "ApplyStep"),
     "DeduplicateStep": ("ace.steps", "DeduplicateStep"),
     "CheckpointStep": ("ace.steps", "CheckpointStep"),
     "LoadTracesStep": ("ace.steps", "LoadTracesStep"),
@@ -118,8 +114,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "PersistStep": ("ace.steps", "PersistStep"),
     "learning_tail": ("ace.steps", "learning_tail"),
     # Recursive Reflector
-    "RRStep": ("ace.rr", "RRStep"),
-    "RRConfig": ("ace.rr", "RRConfig"),
+    "RRStep": ("ace.steps.rr_step", "RRStep"),
+    "RRConfig": ("ace.steps.rr_step", "RRConfig"),
     # Tracing
     "configure_tracing": ("ace.tracing", "configure"),
 }
@@ -180,8 +176,6 @@ __all__ = [
     "EvaluateStep",
     "ReflectStep",
     "UpdateStep",
-    "AttachInsightSourcesStep",
-    "ApplyStep",
     "DeduplicateStep",
     "CheckpointStep",
     "LoadTracesStep",

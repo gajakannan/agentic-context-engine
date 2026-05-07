@@ -286,7 +286,7 @@ env = SimpleEnvironment()
 # Build the full pipeline manually
 pipe = Pipeline(
     [
-        AgentStep(Agent(MODEL)),
+        AgentStep(Agent(MODEL), skillbook5),
         EvaluateStep(env),
         *learning_tail(Reflector(MODEL), SkillManager(MODEL), skillbook5),
     ]
@@ -340,8 +340,9 @@ for r in results_manual:
 # ### Using `learning_tail()` as a building block
 #
 # `learning_tail()` returns the standard learning steps:
-# `[ReflectStep, UpdateStep, ApplyStep]` with optional
-# deduplication and checkpoint steps appended.
+# `[ReflectStep, UpdateStep]` (the agentic SkillManager mutates the
+# skillbook directly via its tools). Optional deduplication and
+# checkpoint steps are appended.
 
 # %%
 skillbook6 = Skillbook()

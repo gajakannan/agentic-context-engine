@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.settings import ModelSettings
 
-from ace.rr.config import RecursiveConfig
+from ace.implementations.rr.config import RecursiveConfig
 from ace.core.context import ACEStepContext, SkillbookView
 from ace.core.outputs import AgentOutput, ReflectorOutput
 from ace.core.skillbook import Skillbook
 
-from ace.rr import RRStep, RRConfig
-from ace.rr.agent import RRDeps
+from ace.steps.rr_step import RRStep, RRConfig
+from ace.implementations.rr.tools import RRDeps
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,30 +41,37 @@ def _make_ctx(
     return ACEStepContext(trace=trace, skillbook=SkillbookView(Skillbook()))
 
 
-def _mock_run_result(
+_RUN_SYNC = "ace.core.recursive_agent.run_agent_sync"
+
+
+def _mock_compaction_result(
     *,
     reasoning: str = "mock reasoning",
     key_insight: str = "mock insight",
     correct_approach: str = "mock approach",
-    extracted_learnings: list | None = None,
-    usage: RequestUsage | None = None,
-) -> MagicMock:
-    """Create a mock PydanticAI RunResult."""
+) -> tuple[ReflectorOutput, dict]:
+    """Create a mock return value for run_agent_sync."""
     output = ReflectorOutput(
         reasoning=reasoning,
-        key_insight=key_insight,
+        error_identification="none",
+        root_cause_analysis="mock root cause",
         correct_approach=correct_approach,
-        extracted_learnings=extracted_learnings or [],
+        key_insight=key_insight,
+        raw={},
     )
-    result = MagicMock()
-    result.output = output
-    if usage is None:
-        usage = RequestUsage(
-            input_tokens=100,
-            output_tokens=50,
-        )
-    result.usage.return_value = usage
-    return result
+    metadata = {
+        "usage": {
+            "input_tokens": 100,
+            "output_tokens": 50,
+            "total_tokens": 150,
+            "requests": 3,
+        },
+        "compactions": 0,
+        "depth": 0,
+        "iterations": 2,
+        "timed_out": False,
+    }
+    return output, metadata
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +84,7 @@ class TestRRStep:
     """Test RRStep construction and StepProtocol."""
 
     def test_step_protocol_attributes(self):
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
+        rr = RRStep("test-model", config=RRConfig())
         assert "trace" in rr.requires
         assert "skillbook" in rr.requires
         assert "reflections" in rr.provides
@@ -85,11 +92,11 @@ class TestRRStep:
 
     def test_call_produces_reflection_on_context(self):
         """RRStep.__call__ populates ctx.reflections."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
+        rr = RRStep("test-model", config=RRConfig())
 
-        mock_result = _mock_run_result(key_insight="step test")
+        reflection, metadata = _mock_compaction_result(key_insight="step test")
 
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             ctx = _make_ctx(
                 question="What is 2+2?",
                 answer="4",
@@ -105,57 +112,65 @@ class TestRRStep:
 
     def test_rr_trace_metadata_populated(self):
         """Successful reflection populates rr_trace in raw."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-        mock_result = _mock_run_result()
+        rr = RRStep("test-model", config=RRConfig())
+        reflection, metadata = _mock_compaction_result()
 
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
             result_ctx = rr(_make_ctx())
 
-        output = result_ctx.reflections[0]
-        assert "rr_trace" in output.raw
-        assert output.raw["rr_trace"]["timed_out"] is False
-        assert "usage" in output.raw
+        result = result_ctx.reflections[0]
+        assert "rr_trace" in result.raw
+        assert result.raw["rr_trace"]["timed_out"] is False
+        assert "usage" in result.raw
+
+    def test_thoughts_are_exposed_in_raw(self):
+        """RRStep preserves think-tool notes recorded during evidence gathering."""
+        rr = RRStep("test-model", config=RRConfig())
+        reflection, metadata = _mock_compaction_result()
+
+        def _run_with_thought(*args, **kwargs):
+            deps = kwargs["deps"]
+            deps.thoughts.append(
+                {
+                    "thought": "The selected flights satisfy the requested dates.",
+                    "evidence_refs": ["messages[5]", "messages[9]"],
+                }
+            )
+            return reflection, metadata
+
+        with patch(_RUN_SYNC, side_effect=_run_with_thought):
+            result_ctx = rr(_make_ctx())
+
+        thoughts = result_ctx.reflections[0].raw["thoughts"]
+        assert thoughts == [
+            {
+                "thought": "The selected flights satisfy the requested dates.",
+                "evidence_refs": ["messages[5]", "messages[9]"],
+            }
+        ]
 
     def test_timeout_produces_output(self):
-        """UsageLimitExceeded produces a timeout ReflectorOutput."""
-        from pydantic_ai.exceptions import UsageLimitExceeded
+        """Budget exhaustion produces a timeout ReflectorOutput."""
+        from ace.core.recursive_agent import BudgetExhausted
 
-        rr = RRStep(
-            "test-model",
-            config=RRConfig(max_llm_calls=5, enable_subagent=False),
-        )
+        rr = RRStep("test-model", config=RRConfig())
 
-        with patch.object(
-            rr._agent,
-            "run_sync",
-            side_effect=UsageLimitExceeded("limit reached"),
-        ):
+        with patch(_RUN_SYNC, side_effect=BudgetExhausted(compaction_count=0)):
             result_ctx = rr(_make_ctx())
 
         assert len(result_ctx.reflections) == 1
         output = result_ctx.reflections[0]
         assert isinstance(output, ReflectorOutput)
-        assert "usage limit" in output.reasoning.lower()
+        assert "budget limit" in output.reasoning.lower()
         assert output.raw.get("timeout") is True
 
     def test_timeout_with_ground_truth_correct(self):
         """Timeout correctly detects correct answer."""
-        from pydantic_ai.exceptions import UsageLimitExceeded
+        from ace.core.recursive_agent import BudgetExhausted
 
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
+        rr = RRStep("test-model", config=RRConfig())
 
-        with patch.object(
-            rr._agent,
-            "run_sync",
-            side_effect=UsageLimitExceeded("limit"),
-        ):
-            ctx = _make_ctx(
-                question="What is 2+2?",
-                answer="4",
-                ground_truth="4",
-            )
-            # reflect() via __call__ doesn't pass agent_output, so is_correct is False
-            # Test directly via reflect() with agent_output
+        with patch(_RUN_SYNC, side_effect=BudgetExhausted(compaction_count=0)):
             output = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),
@@ -167,13 +182,9 @@ class TestRRStep:
 
     def test_error_produces_safe_output(self):
         """General exception produces a safe fallback output."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
+        rr = RRStep("test-model", config=RRConfig())
 
-        with patch.object(
-            rr._agent,
-            "run_sync",
-            side_effect=RuntimeError("unexpected error"),
-        ):
+        with patch(_RUN_SYNC, side_effect=RuntimeError("unexpected error")):
             result_ctx = rr(_make_ctx())
 
         assert len(result_ctx.reflections) == 1
@@ -189,343 +200,24 @@ class TestRRStepProtocol:
         """RRStep satisfies ReflectorLike protocol."""
         from ace.protocols import ReflectorLike
 
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
+        rr = RRStep("test-model", config=RRConfig())
         assert isinstance(rr, ReflectorLike)
 
     def test_reflect_method(self):
         """reflect() delegates to the PydanticAI agent."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-        mock_result = _mock_run_result(key_insight="reflected")
+        rr = RRStep("test-model", config=RRConfig())
+        reflection, metadata = _mock_compaction_result(key_insight="reflected")
 
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
-            output = rr.reflect(
+        with patch(_RUN_SYNC, return_value=(reflection, metadata)):
+            result = rr.reflect(
                 question="What is 2+2?",
                 agent_output=AgentOutput(reasoning="r", final_answer="4"),
                 ground_truth="4",
                 feedback="Correct!",
             )
 
-        assert isinstance(output, ReflectorOutput)
-        assert output.key_insight == "reflected"
-
-
-@pytest.mark.unit
-class TestRRBatchReflection:
-    """Test generic batch reflection paths."""
-
-    def test_batch_splits_into_per_task_outputs(self):
-        """Batch with per-item results in raw produces per-item ReflectorOutputs."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-
-        # Mock a batch result with per-item data in raw
-        output = ReflectorOutput(
-            reasoning="batch analysis",
-            key_insight="batch insight",
-            correct_approach="approach",
-            raw={
-                "items": [
-                    {
-                        "reasoning": "task 0 analysis",
-                        "key_insight": "t0 insight",
-                        "extracted_learnings": [],
-                    },
-                    {
-                        "reasoning": "task 1 analysis",
-                        "key_insight": "t1 insight",
-                        "extracted_learnings": [
-                            {"learning": "l1", "atomicity_score": 0.8, "evidence": "e1"}
-                        ],
-                    },
-                ],
-            },
-        )
-        mock_result = MagicMock()
-        mock_result.output = output
-        usage = MagicMock()
-        usage.request_tokens = 200
-        usage.response_tokens = 100
-        usage.total_tokens = 300
-        usage.requests = 5
-        mock_result.usage.return_value = usage
-
-        batch_trace = {
-            "tasks": [
-                {"item_id": "t0", "trace": [{"role": "user", "content": "hello"}]},
-                {"item_id": "t1", "trace": [{"role": "user", "content": "world"}]},
-            ]
-        }
-        ctx = ACEStepContext(trace=batch_trace, skillbook=SkillbookView(Skillbook()))
-
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
-            result_ctx = rr(ctx)
-
-        assert len(result_ctx.reflections) == 2
-        assert result_ctx.reflections[0].reasoning == "task 0 analysis"
-        assert result_ctx.reflections[1].key_insight == "t1 insight"
-        assert len(result_ctx.reflections[1].extracted_learnings) == 1
-        assert result_ctx.reflections[0].raw["item_id"] == "t0"
-
-    def test_batch_fallback_duplicates_when_no_per_task(self):
-        """When batch output lacks per-item results, duplicate the single reflection."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-
-        output = ReflectorOutput(
-            reasoning="single batch analysis",
-            key_insight="single insight",
-            correct_approach="approach",
-        )
-        mock_result = MagicMock()
-        mock_result.output = output
-        usage = MagicMock()
-        usage.request_tokens = 100
-        usage.response_tokens = 50
-        usage.total_tokens = 150
-        usage.requests = 3
-        mock_result.usage.return_value = usage
-
-        batch_trace = {
-            "tasks": [
-                {"task_id": "t0", "trace": []},
-                {"task_id": "t1", "trace": []},
-            ]
-        }
-        ctx = ACEStepContext(trace=batch_trace, skillbook=SkillbookView(Skillbook()))
-
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
-            result_ctx = rr(ctx)
-
-        assert len(result_ctx.reflections) == 2
-        assert result_ctx.reflections[0].raw["item_id"] == "t0"
-        assert result_ctx.reflections[1].raw["item_id"] == "t1"
-
-    def test_raw_list_batch_is_supported_without_preprocessing(self):
-        """A raw list of trace items should route through generic batch mode."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-
-        output = ReflectorOutput(
-            reasoning="raw list analysis",
-            key_insight="raw list insight",
-            correct_approach="approach",
-            raw={
-                "items": [
-                    {
-                        "reasoning": "item 0",
-                        "key_insight": "i0",
-                        "extracted_learnings": [],
-                    },
-                    {
-                        "reasoning": "item 1",
-                        "key_insight": "i1",
-                        "extracted_learnings": [],
-                    },
-                ]
-            },
-        )
-        mock_result = MagicMock()
-        mock_result.output = output
-        usage = MagicMock()
-        usage.request_tokens = 200
-        usage.response_tokens = 100
-        usage.total_tokens = 300
-        usage.requests = 5
-        mock_result.usage.return_value = usage
-
-        batch_trace = [
-            {"item_id": "i0", "messages": [{"role": "user", "content": "hello"}]},
-            {"item_id": "i1", "messages": [{"role": "user", "content": "world"}]},
-        ]
-        ctx = ACEStepContext(trace=batch_trace, skillbook=SkillbookView(Skillbook()))
-
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
-            result_ctx = rr(ctx)
-
-        assert len(result_ctx.reflections) == 2
-        assert result_ctx.reflections[0].raw["item_id"] == "i0"
-        assert result_ctx.reflections[1].raw["item_id"] == "i1"
-
-    def test_combined_steps_batch_routes_through_generic_batch_mode(self):
-        """Legacy combined-step batches should batch without inner normalization."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-
-        output = ReflectorOutput(
-            reasoning="normalized batch analysis",
-            key_insight="normalized insight",
-            correct_approach="approach",
-            raw={
-                "items": [
-                    {
-                        "reasoning": "task 0 analysis",
-                        "key_insight": "t0 insight",
-                        "extracted_learnings": [],
-                    },
-                    {
-                        "reasoning": "task 1 analysis",
-                        "key_insight": "t1 insight",
-                        "extracted_learnings": [],
-                    },
-                ],
-            },
-        )
-        mock_result = MagicMock()
-        mock_result.output = output
-        usage = MagicMock()
-        usage.request_tokens = 200
-        usage.response_tokens = 100
-        usage.total_tokens = 300
-        usage.requests = 5
-        mock_result.usage.return_value = usage
-
-        combined_trace = {
-            "question": "Analyze 2 agent execution traces",
-            "steps": [
-                {
-                    "role": "conversation",
-                    "id": "task_0",
-                    "content": {
-                        "question": "Where is my order?",
-                        "feedback": "reward=1.0",
-                        "steps": [{"role": "user", "content": "order status"}],
-                    },
-                },
-                {
-                    "role": "conversation",
-                    "id": "task_1",
-                    "content": {
-                        "question": "I need a refund",
-                        "feedback": "reward=0.0",
-                        "steps": [{"role": "user", "content": "refund help"}],
-                    },
-                },
-            ],
-        }
-        ctx = ACEStepContext(trace=combined_trace, skillbook=SkillbookView(Skillbook()))
-
-        with patch.object(rr._agent, "run_sync", return_value=mock_result):
-            result_ctx = rr(ctx)
-
-        assert len(result_ctx.reflections) == 2
-        assert result_ctx.reflections[0].raw["item_id"] == "task_0"
-        assert result_ctx.reflections[1].raw["item_id"] == "task_1"
-
-    def test_batch_sandbox_injects_generic_helper_variables(self):
-        """Batch sandbox should expose generic helper data and helper registry tools."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-        batch_trace = {
-            "tasks": [
-                {
-                    "task_id": "t0",
-                    "question": "Where is my order?",
-                    "feedback": "reward=1.0",
-                    "trace": [{"role": "user", "content": "order status"}],
-                },
-                {
-                    "task_id": "t1",
-                    "question": "I need a refund",
-                    "feedback": "reward=0.0",
-                    "trace": [{"role": "user", "content": "refund help"}],
-                },
-            ]
-        }
-
-        sandbox = rr._create_sandbox(
-            trace_obj=None,
-            traces=batch_trace,
-            skillbook=SkillbookView(Skillbook()),
-        )
-
-        assert sandbox.namespace["batch_items"] == batch_trace["tasks"]
-        assert sandbox.namespace["item_ids"] == ["t0", "t1"]
-        assert sandbox.namespace["item_id_to_index"] == {"t0": 0, "t1": 1}
-        assert "survey_items" in sandbox.namespace
-        assert sandbox.namespace["survey_items"][0].startswith("Inspect batch_items[0]")
-        assert sandbox.namespace["item_preview_by_id"]["t0"]["question_preview"]
-        assert callable(sandbox.namespace["register_helper"])
-        assert callable(sandbox.namespace["run_helper"])
-
-    def test_batch_prompt_mentions_helper_registration_and_survey_items(self):
-        """Batch prompt should surface helper registration and generic survey items."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-        batch_trace = {
-            "tasks": [
-                {
-                    "task_id": "t0",
-                    "question": "Where is my order?",
-                    "feedback": "reward=1.0",
-                    "trace": [{"role": "user", "content": "order status"}],
-                },
-                {
-                    "task_id": "t1",
-                    "question": "I need a refund",
-                    "feedback": "reward=0.0",
-                    "trace": [{"role": "user", "content": "refund help"}],
-                },
-                {
-                    "task_id": "t2",
-                    "question": "Can I exchange this?",
-                    "feedback": "reward=1.0",
-                    "trace": [{"role": "user", "content": "exchange help"}],
-                },
-            ]
-        }
-
-        prompt = rr._build_initial_prompt(
-            traces=batch_trace,
-            skillbook=SkillbookView(Skillbook()),
-            trace_obj=None,
-        )
-
-        assert "register_helper" in prompt
-        assert "helper_registry" in prompt
-        assert "survey_items" in prompt
-        assert 'raw["items"]' in prompt
-        assert "Inspect batch_items[0] (item_id='t0')" in prompt
-
-    def test_batch_prompt_uses_nested_trace_messages_for_previews(self):
-        """Wrapped batch items should surface nested trace messages in previews."""
-        rr = RRStep("test-model", config=RRConfig(enable_subagent=False))
-        batch_trace = {
-            "tasks": [
-                {
-                    "task_id": "task_0",
-                    "question": "Please cancel my reservation.",
-                    "feedback": "Task PASSED (reward=1.0)",
-                    "trace": {
-                        "question": "Please cancel my reservation.",
-                        "messages": [
-                            {
-                                "role": "assistant",
-                                "content": "Hi! How can I help you today?",
-                            },
-                            {
-                                "role": "user",
-                                "content": "Please cancel my reservation.",
-                            },
-                        ],
-                        "reasoning": "Ask for identifiers and confirm refund policy.",
-                        "answer": "I can help with that.",
-                    },
-                }
-            ]
-        }
-
-        sandbox = rr._create_sandbox(
-            trace_obj=None,
-            traces=batch_trace,
-            skillbook=SkillbookView(Skillbook()),
-        )
-        preview = sandbox.namespace["item_preview_by_id"]["task_0"]
-
-        assert preview["message_count"] == 2
-        assert "Hi! How can I help you today?" in preview["first_message_preview"]
-
-        prompt = rr._build_initial_prompt(
-            traces=batch_trace,
-            skillbook=SkillbookView(Skillbook()),
-            trace_obj=None,
-        )
-
-        assert "| `task_0` | 2 messages |" in prompt
-        assert "task_0: PASS, 2 messages" in prompt
+        assert isinstance(result, ReflectorOutput)
+        assert result.key_insight == "reflected"
 
 
 @pytest.mark.unit
@@ -535,8 +227,9 @@ class TestMeteredModel:
     def test_callback_invoked_with_request_usage_and_model_name(self):
         from pydantic_ai import Agent
         from pydantic_ai.models.test import TestModel
+        from pydantic_ai.usage import RequestUsage
 
-        from ace.rr.metered_model import MeteredModel
+        from ace.core.metered_model import MeteredModel
 
         calls: list[tuple[RequestUsage, str]] = []
 
@@ -547,7 +240,7 @@ class TestMeteredModel:
         agent = Agent(MeteredModel(inner, _cb), output_type=str)
         result = agent.run_sync("hello")
 
-        assert result.output  # TestModel produces a canned response
+        assert result.output
         assert len(calls) >= 1
         reported_usage, model_id = calls[-1]
         assert isinstance(reported_usage, RequestUsage)
@@ -558,7 +251,7 @@ class TestMeteredModel:
         from pydantic_ai import Agent
         from pydantic_ai.models.test import TestModel
 
-        from ace.rr.metered_model import MeteredModel
+        from ace.core.metered_model import MeteredModel
 
         def _cb(usage, model_id):
             raise RuntimeError("boom")
@@ -566,7 +259,6 @@ class TestMeteredModel:
         agent = Agent(MeteredModel(TestModel(), _cb), output_type=str)
         result = agent.run_sync("hello")
 
-        # The agent run completes normally even though the callback raised.
         assert result.output
 
     def test_rrstep_accepts_prebuilt_model_instance(self):
@@ -574,34 +266,93 @@ class TestMeteredModel:
         from pydantic_ai.models.test import TestModel
 
         test_model = TestModel()
-        rr = RRStep(
-            test_model,
-            config=RRConfig(enable_subagent=False),
-        )
+        rr = RRStep(test_model, config=RRConfig())
 
         assert rr._model is test_model
+        assert rr._agent.model is test_model
 
     def test_rrstep_wraps_model_when_usage_callback_set(self):
         """``RRStep.__init__`` routes the agent model through ``MeteredModel``."""
-        from ace.rr.metered_model import MeteredModel
+        from ace.core.metered_model import MeteredModel
 
         rr = RRStep(
             "test-model",
-            config=RRConfig(
-                enable_subagent=False,
-                usage_callback=lambda u, n: None,
-            ),
+            config=RRConfig(usage_callback=lambda u, n: None),
         )
 
         assert isinstance(rr._agent.model, MeteredModel)
 
     def test_rrstep_does_not_wrap_when_no_callback(self):
         """Without a callback there's no wrapper overhead."""
-        from ace.rr.metered_model import MeteredModel
+        from ace.core.metered_model import MeteredModel
 
-        rr = RRStep(
-            "test-model",
-            config=RRConfig(enable_subagent=False),
-        )
+        rr = RRStep("test-model", config=RRConfig())
 
         assert not isinstance(rr._agent.model, MeteredModel)
+
+    def test_rrstep_uses_prompted_reflector_output(self):
+        """RR should gather evidence with tools and return structured output directly."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        assert rr._agent._output_schema.mode == "prompted"
+        assert rr._agent._output_schema.allows_text is True
+
+    def test_rrstep_defaults_to_deterministic_temperature(self):
+        """RR defaults to deterministic evidence analysis unless overridden."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        assert rr._agent.model_settings["temperature"] == 0.0
+
+    def test_rrstep_preserves_explicit_model_settings(self):
+        """Callers can still override RR model settings explicitly."""
+        rr = RRStep(
+            "test-model",
+            config=RRConfig(),
+            model_settings=ModelSettings(temperature=0.7),
+        )
+
+        assert rr._agent.model_settings["temperature"] == 0.7
+
+    def test_rrstep_specializes_execute_code_tool_description(self):
+        """RR should present execute_code as an evidence tool, not a prose channel."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        tool = rr._agent._function_toolset.tools["execute_code"]
+
+        assert "evidence workbench" in tool.description
+        assert "think" in tool.description
+        assert "store strings/snippets" in tool.description
+        assert tool.function_schema.description == tool.description
+        code_schema = tool.function_schema.json_schema["properties"]["code"]
+        assert "short snippet" in code_schema["description"]
+
+    def test_small_trace_summary_includes_effort_guidance(self):
+        """Small traces should discourage transcript walkthroughs."""
+        rr = RRStep("test-model", config=RRConfig())
+
+        summary = rr._build_data_summary(
+            {
+                "question": "q",
+                "feedback": "Task PASSED",
+                "messages": [{"role": "user", "content": "hello"}],
+            }
+        )
+
+        assert "Expected effort" in summary
+        assert "2-4 focused execute_code checks" in summary
+        assert "Do not produce a transcript walkthrough" in summary
+
+    def test_prebuilt_model_and_callback_compose(self):
+        """Pre-built Model + usage_callback both apply — meter wraps the instance."""
+        from pydantic_ai.models.test import TestModel
+
+        from ace.core.metered_model import MeteredModel
+
+        inner = TestModel()
+        rr = RRStep(
+            inner,
+            config=RRConfig(usage_callback=lambda u, n: None),
+        )
+
+        assert isinstance(rr._agent.model, MeteredModel)
+        assert rr._agent.model.wrapped is inner

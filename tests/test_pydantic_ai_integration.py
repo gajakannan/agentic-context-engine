@@ -22,10 +22,8 @@ if not HAS_API:
 
 from ace.core.outputs import (
     AgentOutput,
-    ExtractedLearning,
     ReflectorOutput,
     SkillManagerOutput,
-    SkillTag,
 )
 from ace.core.skillbook import Skillbook, UpdateBatch
 from ace.implementations import Agent, Reflector, SkillManager
@@ -138,7 +136,6 @@ class TestReflectorRole:
         assert len(output.key_insight) > 0
         assert "usage" in output.raw
         print(f"\n  Key insight: {output.key_insight}")
-        print(f"  Skill tags: {[(t.id, t.tag) for t in output.skill_tags]}")
 
     def test_wrong_answer_reflection(self):
         reflector = Reflector(MODEL)
@@ -162,33 +159,7 @@ class TestReflectorRole:
         assert len(output.root_cause_analysis) > 0, "Should analyze root cause"
         print(f"\n  Error identified: {output.error_identification[:200]}")
         print(f"  Root cause: {output.root_cause_analysis[:200]}")
-        print(f"  Learnings: {len(output.extracted_learnings)}")
-
-    def test_extracted_learnings_structure(self):
-        reflector = Reflector(MODEL)
-        sb = Skillbook()
-
-        agent_output = AgentOutput(
-            reasoning="I tried to answer directly without checking",
-            final_answer="I don't know",
-        )
-
-        output = reflector.reflect(
-            question="What is the population of Tokyo metropolitan area?",
-            agent_output=agent_output,
-            skillbook=sb,
-            ground_truth="approximately 37 million",
-            feedback="Incorrect. Should have provided the answer.",
-        )
-
-        assert isinstance(output, ReflectorOutput)
-        for learning in output.extracted_learnings:
-            assert isinstance(learning, ExtractedLearning)
-            assert len(learning.learning) > 0
-            assert 0.0 <= learning.atomicity_score <= 1.0
-        print(f"\n  Extracted {len(output.extracted_learnings)} learnings")
-        for i, l in enumerate(output.extracted_learnings):
-            print(f"    [{i}] {l.learning} (atomicity: {l.atomicity_score})")
+        print(f"  Key insight: {output.key_insight[:200]}")
 
 
 class TestSkillManagerRole:
@@ -204,13 +175,6 @@ class TestSkillManagerRole:
             root_cause_analysis="Missing strategy for breaking down multiplication",
             correct_approach="Use decomposition: 15×24 = 15×(20+4) = 300+60 = 360",
             key_insight="Break large multiplications into manageable parts",
-            extracted_learnings=[
-                ExtractedLearning(
-                    learning="Decompose multi-digit multiplication using distributive property",
-                    atomicity_score=0.95,
-                    evidence="15×24 = 15×20 + 15×4 = 360",
-                ),
-            ],
         )
 
         output = sm.update_skills(
@@ -227,7 +191,9 @@ class TestSkillManagerRole:
         print(f"\n  Reasoning: {output.update.reasoning[:200]}")
         print(f"  Operations: {len(output.update.operations)}")
         for op in output.update.operations:
-            print(f"    {op.type}: {op.content[:80] if op.content else 'N/A'}")
+            print(
+                f"    {op.type}: {(op.insight or op.issue)[:80] if (op.insight or op.issue) else 'N/A'}"
+            )
 
     def test_tag_existing_skill(self):
         sm = SkillManager(MODEL)
@@ -242,7 +208,6 @@ class TestSkillManagerRole:
             reasoning="The agent correctly applied decomposition strategy",
             correct_approach="Decomposition worked well",
             key_insight="Decomposition strategy is effective",
-            skill_tags=[SkillTag(id="math-001", tag="helpful")],
         )
 
         output = sm.update_skills(
@@ -255,7 +220,10 @@ class TestSkillManagerRole:
         assert isinstance(output, SkillManagerOutput)
         print(f"\n  Operations: {len(output.update.operations)}")
         for op in output.update.operations:
-            print(f"    {op.type} {op.skill_id or ''}: " f"{op.content or op.metadata}")
+            print(
+                f"    {op.type} {op.skill_id or ''}: "
+                f"{(op.insight or op.issue) or op.metadata}"
+            )
 
 
 class TestACELiteLLMIntegration:
@@ -356,14 +324,12 @@ class TestRRStepIntegration:
     @pytest.mark.integration
     def test_rr_basic_reflection(self):
         """RRStep.reflect returns a valid ReflectorOutput with non-empty fields."""
-        from ace.rr.runner import RRStep
-        from ace.rr.config import RecursiveConfig
+        from ace.steps.rr_step import RRStep
+        from ace.implementations.rr.config import RecursiveConfig
 
         config = RecursiveConfig(
-            max_llm_calls=15,
-            max_iterations=10,
+            max_requests=15,
             timeout=15.0,
-            enable_subagent=False,
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -401,14 +367,12 @@ class TestRRStepIntegration:
     @pytest.mark.integration
     def test_rr_with_skillbook(self):
         """RRStep.reflect with a populated skillbook references or tags skills."""
-        from ace.rr.runner import RRStep
-        from ace.rr.config import RecursiveConfig
+        from ace.steps.rr_step import RRStep
+        from ace.implementations.rr.config import RecursiveConfig
 
         config = RecursiveConfig(
-            max_llm_calls=25,
-            max_iterations=10,
+            max_requests=25,
             timeout=15.0,
-            enable_subagent=False,
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -436,18 +400,13 @@ class TestRRStepIntegration:
         assert len(output.reasoning) > 0
         assert len(output.key_insight) > 0
 
-        # The reflector should reference the skill in some way — either via
-        # skill_tags or by mentioning the skill in its reasoning/key_insight.
-        # The RR should produce a meaningful analysis — it may or may not
-        # reference the specific skill ID depending on the model.
-        full_text = (
-            f"{output.reasoning} {output.key_insight} {output.extracted_learnings}"
-        )
+        # The RR should produce a meaningful analysis referencing the
+        # capital city error.
+        full_text = f"{output.reasoning} {output.key_insight}"
         has_analysis = (
             "capital" in full_text.lower()
             or "largest" in full_text.lower()
             or "brasilia" in full_text.lower()
-            or len(output.skill_tags) > 0
         )
         assert has_analysis, (
             "Expected the reflector to analyze the capital city error. "
@@ -455,21 +414,17 @@ class TestRRStepIntegration:
         )
 
         print(f"\n  Key insight: {output.key_insight[:200]}")
-        print(f"  Skill tags: {[(t.id, t.tag) for t in output.skill_tags]}")
-        print(f"  Learnings: {len(output.extracted_learnings)}")
 
     @pytest.mark.integration
     def test_rr_step_protocol(self):
         """RRStep used as a StepProtocol: __call__(ctx) populates reflections."""
-        from ace.rr.runner import RRStep
-        from ace.rr.config import RecursiveConfig
+        from ace.steps.rr_step import RRStep
+        from ace.implementations.rr.config import RecursiveConfig
         from ace.core.context import ACEStepContext, SkillbookView
 
         config = RecursiveConfig(
-            max_llm_calls=15,
-            max_iterations=10,
+            max_requests=15,
             timeout=15.0,
-            enable_subagent=False,
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()
@@ -508,14 +463,12 @@ class TestRRStepIntegration:
     @pytest.mark.integration
     def test_rr_execute_code_tool_used(self):
         """Verify the agent uses execute_code (total_iterations > 0 in rr_trace)."""
-        from ace.rr.runner import RRStep
-        from ace.rr.config import RecursiveConfig
+        from ace.steps.rr_step import RRStep
+        from ace.implementations.rr.config import RecursiveConfig
 
         config = RecursiveConfig(
-            max_llm_calls=15,
-            max_iterations=10,
+            max_requests=15,
             timeout=15.0,
-            enable_subagent=False,
         )
         rr = RRStep(model=self.RR_MODEL, config=config)
         sb = Skillbook()

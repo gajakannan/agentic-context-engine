@@ -114,3 +114,9 @@ site/
 
 # GSD planning artifacts (NEVER commit!)
 .planning/
+
+# Node build artifacts
+node_modules/
+
+# Local scratch / experiment outputs
+tmp/

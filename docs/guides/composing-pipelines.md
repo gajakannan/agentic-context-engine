@@ -21,10 +21,11 @@ Every ACE pipeline is a sequence of steps, each with a `requires`/`provides`
 contract that declares what context fields it reads and writes:
 
 ```
-AgentStep ─────> EvaluateStep ─────> ReflectStep ─────> UpdateStep ─────> ApplyStep
-  provides:        provides:           provides:          provides:         (mutates
-  agent_output     trace                reflections       skill_manager     skillbook)
-                                                                        _output
+AgentStep ─────> EvaluateStep ─────> ReflectStep ─────> UpdateStep
+  provides:        provides:           provides:          provides:
+  agent_output     trace                reflections        skill_manager_output
+                                                          (also mutates skillbook
+                                                           via the SM's tools)
 ```
 
 The pipeline validates these contracts at construction time — if a step requires
@@ -51,7 +52,7 @@ from ace import (
 skillbook = Skillbook()
 
 pipe = Pipeline([
-    AgentStep(Agent("gpt-4o-mini")),
+    AgentStep(Agent("gpt-4o-mini"), skillbook),
     EvaluateStep(SimpleEnvironment()),
     *learning_tail(Reflector("gpt-4o-mini"), SkillManager("gpt-4o-mini"), skillbook),
 ])
@@ -71,7 +72,7 @@ steps = learning_tail(
     dedup_manager=my_dedup_manager,      # optional
     checkpoint_dir="/tmp/checkpoints",    # optional
 )
-# Returns: [ReflectStep, UpdateStep, ApplyStep,
+# Returns: [ReflectStep, UpdateStep,
 #           DeduplicateStep, CheckpointStep]
 ```
 
@@ -192,7 +193,7 @@ concurrently:
 from ace import Pipeline, Branch, MergeStrategy
 
 pipe = Pipeline([
-    AgentStep(agent),
+    AgentStep(agent, skillbook),
     Branch(
         [EvaluateStep(env_a), EvaluateStep(env_b)],
         merge=MergeStrategy.LAST,
@@ -217,7 +218,7 @@ Pass it anywhere a `Reflector` is expected:
 from ace import ACELiteLLM
 from ace.rr import RRStep, RRConfig
 
-ace = ACELiteLLM.from_model("gpt-4o-mini", reflector=RRStep("gpt-4o-mini", config=RRConfig(max_llm_calls=10)))
+ace = ACELiteLLM.from_model("gpt-4o-mini", reflector=RRStep("gpt-4o-mini", config=RRConfig(max_requests=10)))
 ```
 
 ### As a pipeline step
@@ -229,7 +230,7 @@ from ace import Pipeline, learning_tail, SkillManager, Skillbook
 from ace.rr import RRStep, RRConfig
 
 skillbook = Skillbook()
-rr = RRStep("gpt-4o-mini", config=RRConfig(max_llm_calls=15))
+rr = RRStep("gpt-4o-mini", config=RRConfig(max_requests=15))
 
 pipe = Pipeline([
     MyExecuteStep(),
@@ -239,21 +240,18 @@ pipe = Pipeline([
 ])
 ```
 
-### With a separate sub-agent model
+### With recursion enabled
 
-Route sub-agent calls to a smaller/faster model:
+Allow the RR to decompose large batch inputs via recursive child sessions:
 
 ```python
 from ace.rr import RRStep, RRConfig
 
 rr = RRStep(
     "gpt-4o",
-    config=RRConfig(max_llm_calls=40, subagent_model="gpt-4o-mini"),
+    config=RRConfig(max_requests=40, max_depth=1),  # depth=1 allows one level of recursion
 )
 ```
-
-See [RR_DESIGN.md](../RR_DESIGN.md) for the full architecture, sandbox API,
-configuration reference, and trace schema.
 
 ## Available Steps
 
@@ -264,8 +262,7 @@ All steps are importable from `ace`:
 | `AgentStep` | Execute Agent role |
 | `EvaluateStep` | Run TaskEnvironment evaluation |
 | `ReflectStep` | Run Reflector role (async boundary) |
-| `UpdateStep` | Run SkillManager to generate updates |
-| `ApplyStep` | Apply updates to skillbook |
+| `UpdateStep` | Run the agentic SkillManager; its tools mutate the skillbook directly |
 | `DeduplicateStep` | Merge near-duplicate skills |
 | `CheckpointStep` | Save skillbook to disk |
 | `LoadTracesStep` | Load JSONL trace files |

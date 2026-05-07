@@ -34,7 +34,6 @@ class MockReflector:
             reasoning="test reasoning",
             correct_approach="test approach",
             key_insight="test insight",
-            skill_tags=[],
         )
         self.calls: list[dict] = []
 
@@ -61,7 +60,12 @@ class MockReflector:
 
 
 class MockSkillManager:
-    """Minimal mock satisfying SkillManagerLike."""
+    """Minimal mock satisfying SkillManagerLike.
+
+    The real SM mutates the skillbook directly via tool calls; this mock
+    applies its pre-canned ``output`` to the incoming skillbook so
+    ``UpdateStep`` behaves like the live code path.
+    """
 
     def __init__(self, output: SkillManagerOutput | None = None):
         self.output = output or SkillManagerOutput(
@@ -85,6 +89,7 @@ class MockSkillManager:
                 "progress": progress,
             }
         )
+        skillbook.apply_update(self.output.update)
         return self.output
 
 
@@ -267,7 +272,8 @@ class TestOpenClawEndToEnd:
         add_op = UpdateOperation(
             type="ADD",
             section="debugging",
-            content="Use structured logging for better debug traces",
+            issue="Use structured logging for better debug traces",
+            insight="Use structured logging for better debug traces",
             skill_id=None,
             metadata={"helpful": 1, "harmful": 0, "neutral": 0},
         )
@@ -293,11 +299,11 @@ class TestOpenClawEndToEnd:
         pipeline.run([ctx])
         pipeline.wait_for_background()
 
-        # Skillbook should now have one skill
+        # Skillbook should now have one skill (legacy "debugging" → "context")
         assert len(skillbook.skills()) == 1
         skill = skillbook.skills()[0]
-        assert skill.section == "debugging"
-        assert "structured logging" in skill.content
+        assert skill.section == "context"
+        assert "structured logging" in skill.insight
 
     def test_empty_session_skipped(self, tmp_path: Path):
         """Empty JSONL should produce empty trace."""

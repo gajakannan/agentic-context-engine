@@ -62,7 +62,6 @@ class ReflectStep:
             agent_output = AgentOutput(
                 reasoning=trace.get("reasoning", ""),
                 final_answer=trace.get("answer", ""),
-                skill_ids=trace.get("skill_ids", []),
             )
             reflection = self.reflector.reflect(
                 question=trace.get("question", ""),
@@ -70,6 +69,8 @@ class ReflectStep:
                 skillbook=ctx.skillbook,
                 ground_truth=trace.get("ground_truth"),
                 feedback=trace.get("feedback"),
+                injected_skill_ids=ctx.injected_skill_ids,
+                mode=ctx.mode,
             )
         else:
             # Raw trace from TraceAnalyser or integration — pass as-is
@@ -79,6 +80,8 @@ class ReflectStep:
                 agent_output=AgentOutput(reasoning="", final_answer=""),
                 skillbook=ctx.skillbook,
                 trace=trace,
+                injected_skill_ids=ctx.injected_skill_ids,
+                mode=ctx.mode,
             )
 
         return ctx.replace(reflections=(reflection,))

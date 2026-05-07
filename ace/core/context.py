@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterator, Protocol, runtime_checkable
+from typing import Any, Iterator, Literal, Protocol, runtime_checkable
 
 from pipeline import StepContext
 
@@ -62,7 +62,7 @@ class SkillbookView:
     # -- Read methods delegated to the underlying Skillbook --
 
     def as_prompt(self) -> str:
-        """Return the TOON-encoded skillbook for LLM consumption."""
+        """Return the markdown-formatted skillbook for LLM consumption."""
         return self._sb.as_prompt()
 
     def get_skill(self, skill_id: str) -> Skill | None:
@@ -110,12 +110,18 @@ class ACEStepContext(StepContext):
     responsible for making sense of it.
     """
 
+    # -- Mode --
+    mode: Literal["online", "offline"] = "online"
+
     # -- Domain fields --
     skillbook: SkillbookView | None = None
     trace: object | None = None
     agent_output: AgentOutput | None = None
     reflections: tuple[ReflectorOutput, ...] = ()
     skill_manager_output: UpdateBatch | None = None
+    # Skills rendered into the Agent's prompt this run. Downstream roles
+    # (Reflector/RR, SkillManager) use this as attribution scope.
+    injected_skill_ids: tuple[str, ...] = ()
 
     # -- Progress tracking --
     epoch: int = 1

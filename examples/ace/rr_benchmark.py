@@ -27,13 +27,13 @@ load_dotenv(_root / ".env")
 
 from ace.core.skillbook import Skillbook
 from ace.implementations import SkillManager
-from ace.rr import RRConfig, RRStep
+from ace.steps.rr_step import RRConfig, RRStep
 from ace.runners.trace_analyser import TraceAnalyser
 
 MODEL = os.getenv("ACE_MODEL", "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0")
 
 logging.basicConfig(level=logging.WARNING, format="%(name)s | %(message)s")
-logging.getLogger("ace.rr").setLevel(logging.INFO)
+logging.getLogger("ace.steps.rr").setLevel(logging.INFO)
 
 
 # ---------------------------------------------------------------------------
@@ -463,10 +463,8 @@ def main():
     rr = RRStep(
         MODEL,
         config=RRConfig(
-            max_llm_calls=20,
-            max_iterations=10,
+            max_requests=20,
             timeout=15.0,
-            enable_subagent=False,
         ),
     )
     sm = SkillManager(MODEL)

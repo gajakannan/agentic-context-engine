@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-05-06
+
+### Added
+- **Cross-trace generalization gate** for the SkillManager — four-criterion check
+  (≥3 instances across ≥2 domains, named slot, no API-specific params in the
+  action, verifiable runtime trigger) that constrains when SM may write a broad
+  skill subsuming existing narrow ones. Backed by [skill_generalization.md](ace-eval/research/skill_generalization.md)
+  (14 cited sources).
+- **Action-equivalence rule** for within-run skill writing — splits on action,
+  not on trigger surface. Prevents over-decomposition of structurally identical
+  rules.
+- **Atomicity rule** in `insight` formatting — one trigger + one action per
+  skill, with explicit good/bad shape examples in the prompt.
+- **Insight format guidance** in the SM prompt sourced from the in-context-
+  learning research doc ([icl_skill_formatting.md](ace-eval/research/icl_skill_formatting.md)) — 15-50 word cap, imperative
+  voice, positive framing default, examples only for format/shape rules.
+- **Evidence-only tagging** — SM tags only skills the reflection actually
+  implicates, instead of iterating over every injected_skill_id.
+- **Broaden-via-comparison rule** for UPDATE — when two skills target the same
+  root cause in different niches, broaden `issue` rather than adding a duplicate.
+- **Prompt caching for SM** via `CachePoint(ttl="5m")` mirroring RR's caching;
+  cache_read/write tokens forwarded in run metadata.
+- **SM behavior spec + harness** — `ace-eval/scripts/sm_behavior_check.py`,
+  `sm_iterative_check.py`, `sm_stability_check.py` and matching scenario
+  fixtures cover replay stability, convergence, scope expansion, and the
+  below-threshold gate boundary.
+
+### Changed
+- **`update_skills` signature** — `source` is now optional; `SkillbookView`
+  was dropped from the parameter list (callers pass the real `Skillbook`
+  directly).
+- **Hard removal cap removed** — SM no longer auto-removes skills whose
+  `harmful_count >= 3`. Heavily-used skills can legitimately accumulate
+  harmful tags without being net-negative; REMOVE now requires explicit
+  reflection evidence.
+- **TauBench evaluator** — `evaluation_type=ALL_WITH_NL_ASSERTIONS` on both
+  `run_task` and `run_tasks` call sites in
+  `ace-eval/src/ace_eval/e2e/benchmarks/tau_bench.py`. Retail (and any future
+  benchmark with `NL_ASSERTION` in `reward_basis`) now produces real reward
+  numbers instead of crashing on every task during reward computation.
+
+### Removed
+- **Skillbook v1 legacy aliases** on `Skill` and `UpdateOperation` — v2 schema
+  is now the only schema.
+
+## [0.11.0] - 2026-04-29
+
+### Added
+- **`RecursiveAgent` core abstraction** — extracted from RR into `ace/core/recursive_agent.py`; provides a generic recursive PydanticAI agent with sandbox, microcompaction, default tool set, and depth-aware sub-agent registration. Reusable across roles beyond the Reflector.
+- **Skillbook v2 schema** — full rewrite of `ace/core/skillbook.py` with section-grouped storage, richer `InsightSource` provenance, and BM25-backed retrieval (`rank-bm25` runtime dependency).
+- **Agentic SkillManager** — `SkillManager` rewritten as a tool-calling loop (`ace/implementations/sm_tools.py`). Provenance is now populated by the SkillManager agent directly rather than a dedicated step.
+- **RR skillbook tools for the Reflector** — Reflector can introspect and propose updates to the skillbook from inside the recursive loop.
+- **Anthropic prompt caching enabled by default** for RR agents; `cache_read_tokens` and `cache_write_tokens` are forwarded in run metadata for cost accounting.
+- **Logfire spans around recursive agent sessions** for end-to-end observability of nested RR runs.
+- **Online / offline mode** in the ACE runner.
+- **`nest-asyncio`** added to the dev extra to support nested loops in notebooks and live test scripts.
+
+### Changed
+- **RR collapsed into a single `RRStep`** — the orchestrator/worker split, batch machinery, and `AttachInsightSourcesStep` have been removed. RR now runs as a true recursive loop with depth-bounded sub-agent delegation and microcompaction of stale tool results.
+- **Reflector prompts** simplified, deduplicated, and made input-agnostic; added early-skillbook-skim and parallel-tool guidance.
+- **`record_observation` tool renamed to `think`** to clarify it is a scratch reasoning channel, not persistent storage.
+- **Native evidence summaries** are produced inside RR before final synthesis.
+- **Skillbook prompt format is now markdown** — `Skillbook.as_prompt()` returns a section-grouped markdown list instead of TOON. The `python-toon` dependency has been dropped.
+- **`metered_model` and `sandbox`** moved from `ace/rr/` into `ace/core/` to reflect their cross-role use.
+- **Pytest defaults** — `uv run pytest` now excludes `integration` and `requires_api` markers by default; coverage flags removed from `addopts` (run with `--cov` explicitly when needed).
+- **Observability** — `tool_arguments` and `tool_response` are no longer scrubbed by the Logfire callback so tool I/O remains inspectable.
+
+### Removed
+- `ace/rr/` legacy package layout (`agent.py`, `runner.py`, `trace_context.py`, `message_trimming.py`, batch helpers). Functionality is now in `ace/core/recursive_agent.py` and `ace/implementations/rr/`.
+- `AttachInsightSourcesStep` and its pipeline wiring — provenance is attached by the SkillManager agent.
+- `python-toon` runtime dependency.
+- TAG handling from the SkillManager.
+- Citation scanning from the Reflector.
+
 ## [0.10.0] - 2026-04-13
 
 ### Added
@@ -32,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.2] - 2026-03-31
 
 ### Added
-- **Insight source provenance** — `InsightSource` typed model captures the origin of each skillbook update (trace ID, sample question, epoch/step, reflection summary, integration metadata); `AttachInsightSourcesStep` automatically enriches `UpdateBatch` operations with provenance and is wired into the default learning tail
+- **Insight source provenance** — `InsightSource` typed model captures the origin of each skillbook update (trace ID, sample question, epoch/step, reflection summary, integration metadata); provenance is now populated by the SkillManager agent directly
 - **Claude SDK step** — `ClaudeSDKStep` integration for running Claude Code sub-agents from within ACE pipelines
 - **RR sub-agent code execution** — Recursive Reflector can now delegate to code-execution sub-agents at runtime
 - **RR raw trace batch helpers** — `build_raw_trace_batches` and related runtime utilities for feeding raw traces directly into the RR pipeline

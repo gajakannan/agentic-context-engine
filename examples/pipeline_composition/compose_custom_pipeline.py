@@ -64,7 +64,7 @@ skillbook = Skillbook()
 
 pipe = Pipeline(
     [
-        AgentStep(Agent(llm)),
+        AgentStep(Agent(llm), skillbook),
         EvaluateStep(SimpleEnvironment()),
         LogAnswerStep(),  # <-- custom step injected here
         *learning_tail(Reflector(llm), SkillManager(llm), skillbook),

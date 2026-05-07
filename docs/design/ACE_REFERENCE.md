@@ -24,7 +24,6 @@ from ace import ACERunner
 # Core steps
 from ace import (
     AgentStep, EvaluateStep, ReflectStep, UpdateStep,
-    AttachInsightSourcesStep, ApplyStep,
     DeduplicateStep, CheckpointStep, LoadTracesStep, ExportSkillbookMarkdownStep,
     ObservabilityStep, PersistStep, learning_tail,
 )
@@ -168,19 +167,25 @@ class DeduplicationManagerLike(Protocol):
 ```python
 class AgentStep:
     requires = frozenset({"sample", "skillbook"})
-    provides = frozenset({"agent_output"})
+    provides = frozenset({"agent_output", "injected_skill_ids"})
 
-    def __init__(self, agent: AgentLike) -> None:
+    def __init__(self, agent: AgentLike, skillbook: Skillbook) -> None:
         self.agent = agent
+        self.skillbook = skillbook
 
     def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
+        injected_ids = tuple(s.id for s in self.skillbook.skills())
         agent_output = self.agent.generate(
             question=ctx.sample.question,
             context=ctx.sample.context,
             skillbook=ctx.skillbook,       # SkillbookView (read-only)
             sample=ctx.sample,
         )
-        return ctx.replace(agent_output=agent_output)
+        self.skillbook.mark_used(injected_ids)
+        return ctx.replace(
+            agent_output=agent_output,
+            injected_skill_ids=injected_ids,
+        )
 ```
 
 ### EvaluateStep
@@ -256,7 +261,10 @@ class ReflectStep:
 
 ### UpdateStep
 
-Pure — generates update operations from reflections and current skillbook state.
+Runs the agentic `SkillManager`. The SM's tools mutate the real `Skillbook`
+directly; the returned ``skill_manager_output`` on the context is the
+post-hoc audit log. There is **no** separate ``ApplyStep`` — the skillbook
+already reflects the changes when ``UpdateStep`` returns.
 
 ```python
 class UpdateStep:
@@ -265,64 +273,21 @@ class UpdateStep:
 
     max_workers = 1
 
-    def __init__(self, skill_manager: SkillManagerLike) -> None:
+    def __init__(
+        self, skill_manager: SkillManagerLike, skillbook: Skillbook
+    ) -> None:
         self.skill_manager = skill_manager
+        self.skillbook = skillbook
 
     def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
         output = self.skill_manager.update_skills(
             reflections=ctx.reflections,
-            skillbook=ctx.skillbook,
+            skillbook=self.skillbook,  # real Skillbook — SM tools mutate it
             question_context=...,
             progress=...,
+            injected_skill_ids=ctx.injected_skill_ids,
         )
         return ctx.replace(skill_manager_output=output.update)
-```
-
-### AttachInsightSourcesStep
-
-Enriches update operations with structured provenance before applying.
-
-```python
-class AttachInsightSourcesStep:
-    requires = frozenset({"trace", "reflections", "skill_manager_output", "metadata"})
-    provides = frozenset({"skill_manager_output"})
-
-    def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
-        operations = deepcopy(ctx.skill_manager_output.operations)
-        build_insight_source(
-            trace=ctx.trace,
-            reflections=ctx.reflections,
-            operations=operations,
-            metadata=ctx.metadata,
-            sample=ctx.sample,
-            epoch=ctx.epoch,
-            step=ctx.step_index,
-        )
-        return ctx.replace(
-            skill_manager_output=UpdateBatch(
-                reasoning=ctx.skill_manager_output.reasoning,
-                operations=operations,
-            )
-        )
-```
-
-### ApplyStep
-
-Side-effect step — applies the enriched update batch to the real `Skillbook`.
-
-```python
-class ApplyStep:
-    requires = frozenset({"skill_manager_output"})
-    provides = frozenset()
-
-    max_workers = 1
-
-    def __init__(self, skillbook: Skillbook) -> None:
-        self.skillbook = skillbook
-
-    def __call__(self, ctx: ACEStepContext) -> ACEStepContext:
-        self.skillbook.apply_update(ctx.skill_manager_output)
-        return ctx
 ```
 
 ### DeduplicateStep
@@ -456,9 +421,7 @@ def learning_tail(
     """Return the standard ACE learning steps."""
     steps: list[StepProtocol[ACEStepContext]] = [
         ReflectStep(reflector),
-        UpdateStep(skill_manager),
-        AttachInsightSourcesStep(),
-        ApplyStep(skillbook),
+        UpdateStep(skill_manager, skillbook),
     ]
     if dedup_manager:
         steps.append(DeduplicateStep(dedup_manager, skillbook, interval=dedup_interval))
@@ -496,7 +459,7 @@ def from_roles(cls, *, agent, reflector, skill_manager, environment=None,
                extra_steps=None):
     skillbook = skillbook or Skillbook()
     steps = [
-        AgentStep(agent),
+        AgentStep(agent, skillbook),
         EvaluateStep(environment),
         *learning_tail(
             reflector, skill_manager, skillbook,
@@ -588,7 +551,7 @@ class TraceAnalyser(ACERunner):
 
 ```python
 class ACE(ACERunner):
-    """Live adaptive pipeline: Agent → Evaluate → Reflect → Tag → Update → AttachInsightSources → Apply."""
+    """Live adaptive pipeline: Agent → Evaluate → Reflect → Update → Apply."""
 
     @classmethod
     def from_roles(cls, *, agent, reflector, skill_manager,
@@ -724,39 +687,60 @@ reflection = reflector.reflect(
     ground_truth="4",
     feedback="Correct!",
 )
-# reflection.key_insight, reflection.skill_tags, reflection.extracted_learnings
+# reflection.key_insight
 ```
 
-### SkillManager
+### SkillManager (agentic)
 
-Transforms reflections into skillbook updates. Serializes each `ReflectorOutput` into JSON, calls PydanticAI with `SkillManagerOutput`.
+A `RecursiveAgent` subclass with atomic mutation tools. Tools operate on the real
+`Skillbook` directly; there is no staging and no downstream `ApplyStep`.
 
 ```python
-sm = SkillManager("gpt-4o-mini")
+from ace import SkillManager
+from ace.core.recursive_agent import AgenticConfig
+
+sm = SkillManager("gpt-4o-mini", config=AgenticConfig(max_requests=20))
 output = sm.update_skills(
     reflections=(reflection_output,),
-    skillbook=skillbook,
+    skillbook=skillbook,               # real Skillbook — mutated in place
     question_context="Math problem solving",
     progress="5/10 correct",
+    source=source,
+    injected_skill_ids=ctx.injected_skill_ids,
 )
-skillbook.apply_update(output.update)
+# skillbook has already been updated; `output` is the post-hoc audit log
 ```
+
+**Tool surface** (`implementations/sm_tools.py`):
+
+| Tool | Kind | Purpose |
+|---|---|---|
+| `add_skill(section, issue, keywords, insight?)` | mutate | ADD a new skill |
+| `update_skill(skill_id, issue, keywords?, insight?)` | mutate | UPDATE an existing skill |
+| `remove_skill(skill_id, reason)` | mutate | REMOVE a skill (duplicate, vague, or `harmful_count ≥ 3`) |
+| `tag_skill(skill_id, delta)` | mutate | Bump `helpful_count` / `harmful_count` / `neutral_count` (+1 / -1 / 0) |
+| `search_skills(query, top_k, section?, keywords?)` | read | Hybrid retrieval lookup (check before ADD) |
+| `read_skill(skill_id)` | read | Fetch full skill payload including counters |
+| `execute_code(code)` | read | Inherited sandbox tool for verification |
+
+Each mutation tool appends an `UpdateOperation` to `SMDeps.operations`; `update_skills()`
+splices that list into the returned `SkillManagerOutput`.
 
 ### Shared helpers (`implementations/helpers.py`)
 
 | Function | Purpose |
 |---|---|
-| `extract_cited_skill_ids(text)` | Regex `[section-00001]` → deduplicated list of IDs |
 | `format_optional(value)` | Returns `"(none)"` for falsy values |
-| `make_skillbook_excerpt(skillbook, skill_ids)` | Builds `[id] content` lines for cited skills |
+| `make_skillbook_excerpt(skillbook, skill_ids)` | Builds issue / insight excerpts for listed skills |
 
 ### Prompt templates (`implementations/prompts.py`)
 
 | Constant | Role |
 |---|---|
 | `AGENT_PROMPT` | Agent prompt with strategic problem-solving protocol |
-| `REFLECTOR_PROMPT` | Reflector prompt with diagnostic analysis protocol |
-| `SKILL_MANAGER_PROMPT` | SkillManager prompt with atomic strategy creation |
+| `REFLECTOR_PROMPT` | Reflector prompt with pure-analysis protocol (no tagging) |
+| `SKILL_MANAGER_SYSTEM` | SkillManager system prompt (tool rules + rejection criteria) |
+| `SKILL_MANAGER_PROMPT` | SkillManager user prompt (reflections, stats, workflow) |
 | `SKILLBOOK_USAGE_INSTRUCTIONS` | Shared text for skillbook usage guidance |
 
 Also exports `wrap_skillbook_for_external_agent(skillbook)` — the canonical function for injecting skillbook context into external agentic systems.
@@ -990,7 +974,7 @@ ace = ACE.from_roles(
     checkpoint_dir="./checkpoints",
     checkpoint_interval=10,
 )
-# Pipeline: Agent → Evaluate → Reflect → Tag → Update → AttachInsightSources → Apply → Deduplicate → Checkpoint
+# Pipeline: Agent → Evaluate → Reflect → Update → Apply → Deduplicate → Checkpoint
 results = ace.run(samples, epochs=3)
 ```
 
@@ -1065,7 +1049,7 @@ ace.save("learned.json")
 
 # With Recursive Reflector
 from ace import RRStep, RRConfig
-rr = RRStep("gpt-4o-mini", config=RRConfig(max_iterations=10))
+rr = RRStep("gpt-4o-mini", config=RRConfig(max_requests=20))
 ace = ACELiteLLM("gpt-4o-mini", reflector=rr)
 ```
 

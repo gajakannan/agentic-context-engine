@@ -14,7 +14,6 @@ from ace.core.outputs import (
     AgentOutput,
     ReflectorOutput,
     SkillManagerOutput,
-    SkillTag,
 )
 from ace.core.skillbook import Skillbook, UpdateBatch, UpdateOperation
 from ace.runners.base import ACERunner
@@ -56,12 +55,16 @@ class MockReflector:
             reasoning="mock reflection",
             correct_approach="mock approach",
             key_insight="mock insight",
-            skill_tags=[],
         )
 
 
 class MockSkillManager:
-    """Minimal mock satisfying SkillManagerLike."""
+    """Minimal mock satisfying SkillManagerLike.
+
+    The real agentic SkillManager mutates the skillbook directly via
+    tools; this mock does the same so ``UpdateStep`` behaves realistically
+    without a live LLM.
+    """
 
     def update_skills(
         self,
@@ -72,6 +75,7 @@ class MockSkillManager:
         progress: str,
         **kwargs: Any,
     ) -> SkillManagerOutput:
+        skill = skillbook.add_skill(section="learned", issue="mock skill")
         return SkillManagerOutput(
             update=UpdateBatch(
                 reasoning="mock update",
@@ -79,7 +83,8 @@ class MockSkillManager:
                     UpdateOperation(
                         type="ADD",
                         section="learned",
-                        content="mock skill",
+                        issue="mock skill",
+                        skill_id=skill.id,
                     )
                 ],
             ),

@@ -27,7 +27,7 @@ skill_manager = SkillManager("gpt-4o-mini", prompt_template="Your custom skill m
 
 | Variable | Description |
 |----------|-------------|
-| `{skillbook}` | Current skillbook in TOON format |
+| `{skillbook}` | Current skillbook in markdown format |
 | `{question}` | The input question |
 | `{context}` | Additional context |
 | `{reflection}` | Optional reflection from a previous attempt |
@@ -36,7 +36,7 @@ skill_manager = SkillManager("gpt-4o-mini", prompt_template="Your custom skill m
 
 | Variable | Description |
 |----------|-------------|
-| `{skillbook}` | Current skillbook in TOON format |
+| `{skillbook}` | Current skillbook in markdown format |
 | `{question}` | The original question |
 | `{agent_output}` | The agent's response |
 | `{ground_truth}` | Expected answer |
@@ -46,7 +46,7 @@ skill_manager = SkillManager("gpt-4o-mini", prompt_template="Your custom skill m
 
 | Variable | Description |
 |----------|-------------|
-| `{skillbook}` | Current skillbook in TOON format |
+| `{skillbook}` | Current skillbook in markdown format |
 | `{reflection}` | Reflector's analysis |
 | `{question_context}` | Description of the task domain |
 | `{progress}` | Current training progress |

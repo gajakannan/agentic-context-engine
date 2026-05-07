@@ -1,14 +1,12 @@
-"""XML skill rendering and per-task skill retrieval.
-
-Provides an alternative to the TOON-based ``Skillbook.as_prompt()`` that
-renders skills as XML ``<strategy>`` elements and supports embedding-based
-top-k retrieval for per-task skill injection.
-"""
+"""XML skill rendering and skill retrieval helpers."""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+import re
+from collections import defaultdict
+from typing import TYPE_CHECKING, Iterable
+from xml.sax.saxutils import escape
 
 if TYPE_CHECKING:
     from ace.core.skillbook import Skill, Skillbook
@@ -16,97 +14,169 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-# ------------------------------------------------------------------
-# XML rendering
-# ------------------------------------------------------------------
+RRF_K = 60
 
 
-def render_skills_xml(skills: list[Skill]) -> str:
-    """Render a list of skills as XML ``<strategy>`` elements.
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9_]+", text.lower())
 
-    Each skill becomes::
 
-        <strategy id="general-00042" section="general">
-        When a customer requests a flight change, ...
-        </strategy>
+def _normalize_keywords(keywords: Iterable[str] | None) -> list[str]:
+    if keywords is None:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for keyword in keywords:
+        text = str(keyword).strip().lower().replace(" ", "_")
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return normalized
 
-    Args:
-        skills: Skills to render.
 
-    Returns:
-        XML string with all skills, or empty string if no skills.
-    """
+def _keyword_overlap(skill: "Skill", keywords: list[str]) -> int:
+    if not keywords:
+        return 0
+    return sum(1 for keyword in keywords if keyword in skill.keywords)
+
+
+def render_skills_xml(skills: list["Skill"]) -> str:
+    """Render skills as XML ``<strategy>`` elements."""
     if not skills:
         return ""
 
     parts: list[str] = []
-    for s in skills:
+    for skill in skills:
+        keyword_attr = ",".join(skill.keywords)
+        body = [f"  <issue>{escape(skill.issue)}</issue>"]
+        if skill.insight:
+            body.append(f"  <insight>{escape(skill.insight)}</insight>")
+        body.append(f"  <keywords>{escape(keyword_attr)}</keywords>")
         parts.append(
-            f'<strategy id="{s.id}" section="{s.section}">\n'
-            f"{s.content}\n"
-            f"</strategy>"
+            f'<strategy id="{escape(skill.id)}" section="{escape(skill.section)}">\n'
+            + "\n".join(body)
+            + "\n</strategy>"
         )
 
     strategies_block = "\n".join(parts)
-
     return (
         f"{strategies_block}\n\n"
-        "Adapt these strategies to your current situation — "
+        "Adapt these strategies to your current situation; "
         "they are patterns, not rigid rules."
     )
 
 
-# ------------------------------------------------------------------
-# Per-task retrieval
-# ------------------------------------------------------------------
+def _lexical_ranking(
+    skills: list["Skill"],
+    query: str,
+) -> list["Skill"]:
+    if not skills:
+        return []
+    query_tokens = _tokenize(query)
+    if not query_tokens:
+        return skills
+
+    try:
+        from rank_bm25 import BM25Okapi
+
+        corpus = [_tokenize(skill.embedding_text()) for skill in skills]
+        bm25 = BM25Okapi(corpus)
+        scores = bm25.get_scores(query_tokens)
+        ranked_pairs = sorted(
+            zip(scores, skills),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        return [skill for _, skill in ranked_pairs]
+    except Exception as exc:
+        logger.debug("BM25 unavailable, falling back to token overlap: %s", exc)
+        query_token_set = set(query_tokens)
+        ranked_pairs = []
+        for skill in skills:
+            doc_tokens = set(_tokenize(skill.embedding_text()))
+            ranked_pairs.append((len(query_token_set & doc_tokens), skill))
+        ranked_pairs.sort(key=lambda item: item[0], reverse=True)
+        return [skill for _, skill in ranked_pairs]
+
+
+def _dense_ranking(
+    skills: list["Skill"],
+    query: str,
+    detector: "SimilarityDetector",
+) -> list["Skill"]:
+    if not skills:
+        return []
+
+    query_embedding = detector.compute_embedding(query)
+    if query_embedding is None:
+        raise RuntimeError(
+            "Failed to embed retrieval query — "
+            "check embedding provider credentials / network."
+        )
+
+    ranked_pairs: list[tuple[float, Skill]] = []
+    for skill in skills:
+        if skill.embedding is None:
+            continue
+        similarity = detector.cosine_similarity(query_embedding, skill.embedding)
+        ranked_pairs.append((similarity, skill))
+
+    ranked_pairs.sort(key=lambda item: item[0], reverse=True)
+    return [skill for _, skill in ranked_pairs]
 
 
 def retrieve_top_k(
-    skillbook: Skillbook,
+    skillbook: "Skillbook",
     query: str,
     *,
     top_k: int = 5,
-    detector: SimilarityDetector | None = None,
-) -> list[Skill]:
-    """Retrieve the most relevant skills for a query via embedding similarity.
+    detector: "SimilarityDetector | None" = None,
+    section: str | None = None,
+    keywords: list[str] | None = None,
+) -> list["Skill"]:
+    """Retrieve relevant skills using lexical + dense fusion."""
+    if top_k <= 0:
+        return []
 
-    Uses the existing ``SimilarityDetector`` infrastructure to embed the
-    query and compute cosine similarity against all active skill embeddings.
+    candidates = skillbook.skills()
+    if section:
+        normalized_section = str(section).strip().lower()
+        candidates = [
+            skill for skill in candidates if skill.section == normalized_section
+        ]
+    if not candidates:
+        return []
 
-    Args:
-        skillbook: Skillbook with active skills (embeddings computed lazily).
-        query: Task description or user scenario text.
-        top_k: Number of skills to return.
-        detector: Pre-initialized detector (created with defaults if None).
+    normalized_keywords = _normalize_keywords(keywords)
 
-    Returns:
-        Top-k skills sorted by descending similarity.
-    """
     if detector is None:
-        from ace.deduplication.detector import SimilarityDetector as _Det
+        from ace.deduplication.detector import SimilarityDetector as _Detector
         from ace.protocols.deduplication import DeduplicationConfig
 
-        detector = _Det(DeduplicationConfig())
+        detector = _Detector(DeduplicationConfig())
 
-    # Ensure all skills have embeddings (idempotent)
     detector.ensure_embeddings(skillbook)
+    lexical_ranked = _lexical_ranking(candidates, query)
+    dense_ranked = _dense_ranking(candidates, query, detector)
 
-    # Embed the query
-    query_embedding = detector.compute_embedding(query)
-    if query_embedding is None:
-        logger.warning("Failed to embed query; returning all active skills")
-        return skillbook.skills()[:top_k]
+    fused_scores: dict[str, float] = defaultdict(float)
+    skills_by_id = {skill.id: skill for skill in candidates}
 
-    # Score each skill
-    scored: list[tuple[float, Skill]] = []
-    for skill in skillbook.skills():
-        if skill.embedding is None:
-            continue
-        sim = detector.cosine_similarity(query_embedding, skill.embedding)
-        scored.append((sim, skill))
+    for rank, skill in enumerate(lexical_ranked, start=1):
+        fused_scores[skill.id] += 1.0 / (RRF_K + rank)
+    for rank, skill in enumerate(dense_ranked, start=1):
+        fused_scores[skill.id] += 1.0 / (RRF_K + rank)
 
-    # Sort descending by similarity
-    scored.sort(key=lambda x: x[0], reverse=True)
+    if normalized_keywords:
+        for skill in candidates:
+            overlap = _keyword_overlap(skill, normalized_keywords)
+            if overlap:
+                fused_scores[skill.id] += 0.25 * overlap
 
-    return [skill for _, skill in scored[:top_k]]
+    ranked_ids = sorted(
+        fused_scores,
+        key=lambda skill_id: fused_scores[skill_id],
+        reverse=True,
+    )
+    return [skills_by_id[skill_id] for skill_id in ranked_ids[:top_k]]

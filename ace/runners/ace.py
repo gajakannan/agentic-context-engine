@@ -77,7 +77,7 @@ class ACE(ACERunner):
         """
         skillbook = skillbook or Skillbook()
         steps: list[StepProtocol[ACEStepContext]] = [
-            AgentStep(agent),
+            AgentStep(agent, skillbook),
             EvaluateStep(environment),
             *learning_tail(
                 reflector,

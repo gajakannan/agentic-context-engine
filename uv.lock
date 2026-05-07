@@ -33,14 +33,14 @@ wheels = [
 
 [[package]]
 name = "ace-framework"
-version = "0.10.0"
+version = "0.12.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "litellm" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim" },
-    { name = "python-toon" },
+    { name = "rank-bm25" },
     { name = "tau2" },
     { name = "tenacity" },
 ]
@@ -62,6 +62,7 @@ all = [
     { name = "numpy" },
     { name = "python-dotenv", version = "1.2.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14' or sys_platform != 'win32'" },
     { name = "python-dotenv", version = "1.2.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14' and sys_platform == 'win32'" },
+    { name = "rank-bm25" },
     { name = "requests" },
     { name = "sentence-transformers" },
     { name = "tenacity" },
@@ -137,6 +138,7 @@ dev = [
     { name = "boto3" },
     { name = "git-changelog" },
     { name = "mypy" },
+    { name = "nest-asyncio" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -179,8 +181,9 @@ requires-dist = [
     { name = "pydantic-settings", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
     { name = "python-dotenv", marker = "extra == 'all'", specifier = ">=1.0.0" },
     { name = "python-dotenv", marker = "extra == 'claude-code'", specifier = ">=1.0.0" },
-    { name = "python-toon", specifier = ">=0.1.0" },
     { name = "questionary", marker = "extra == 'cloud'", specifier = ">=2.0.0" },
+    { name = "rank-bm25", specifier = ">=0.2.2" },
+    { name = "rank-bm25", marker = "extra == 'all'", specifier = ">=0.2.2" },
     { name = "requests", marker = "extra == 'all'", specifier = ">=2.31.0" },
     { name = "requests", marker = "extra == 'cloud'", specifier = ">=2.31.0" },
     { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=2.2.0" },
@@ -212,6 +215,7 @@ dev = [
     { name = "boto3", specifier = ">=1.42.50" },
     { name = "git-changelog", specifier = ">=2.5.0" },
     { name = "mypy", specifier = ">=1.0.0" },
+    { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "pre-commit", specifier = ">=3.0.0" },
     { name = "pytest", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.21.0" },
@@ -3226,6 +3230,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8dac321cda606860fa4548858c0cc45d9d1d4ca2628b/mypy_extensions-1.1.0.tar.gz", hash = "sha256:52e68efc3284861e772bbcd66823fde5ae21fd2fdb51c62a211403730b916558", size = 6343, upload-time = "2025-04-22T14:54:24.164Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
+]
+
+[[package]]
+name = "nest-asyncio"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
 ]
 
 [[package]]
@@ -7289,15 +7302,6 @@ wheels = [
 ]
 
 [[package]]
-name = "python-toon"
-version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4e/92/640c83ca46d5fe9c49895449a8932f55252537dd13dd22186cbac3a1ce59/python_toon-0.1.3.tar.gz", hash = "sha256:ca348b214c4f1cdad3579fd83dd60032d9eb87eb349c2d430ad9eb6371f174bf", size = 31280, upload-time = "2025-11-04T09:12:20.949Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/a4/2f2def0378b44f913d2d6cb3bc5b1a15267b363937ab1cb9afb07ce2313c/python_toon-0.1.3-py3-none-any.whl", hash = "sha256:a27b0ee4a729e730d1037d0a63eb8b344b3e5a26e3dc9a173067b6c31a868ee6", size = 21797, upload-time = "2025-11-04T09:12:19.443Z" },
-]
-
-[[package]]
 name = "pytokens"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -7407,6 +7411,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/45/eafb0bba0f9988f6a2520f9ca2df2c82ddfa8d67c95d6625452e97b204a5/questionary-2.1.1.tar.gz", hash = "sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d", size = 25845, upload-time = "2025-08-28T19:00:20.851Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/26/1062c7ec1b053db9e499b4d2d5bc231743201b74051c973dadeac80a8f43/questionary-2.1.1-py3-none-any.whl", hash = "sha256:a51af13f345f1cdea62347589fbb6df3b290306ab8930713bfae4d475a7d4a59", size = 36753, upload-time = "2025-08-28T19:00:19.56Z" },
+]
+
+[[package]]
+name = "rank-bm25"
+version = "0.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fc/0a/f9579384aa017d8b4c15613f86954b92a95a93d641cc849182467cf0bb3b/rank_bm25-0.2.2.tar.gz", hash = "sha256:096ccef76f8188563419aaf384a02f0ea459503fdf77901378d4fd9d87e5e51d", size = 8347, upload-time = "2022-02-16T12:10:52.196Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2a/21/f691fb2613100a62b3fa91e9988c991e9ca5b89ea31c0d3152a3210344f9/rank_bm25-0.2.2-py3-none-any.whl", hash = "sha256:7bd4a95571adadfc271746fa146a4bcfd89c0cf731e49c3d1ad863290adbe8ae", size = 8584, upload-time = "2022-02-16T12:10:50.626Z" },
 ]
 
 [[package]]

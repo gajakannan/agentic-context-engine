@@ -1,31 +1,35 @@
 # The Skillbook
 
-The **Skillbook** is ACE's knowledge store — a structured collection of strategies that the agent has learned from experience. Each strategy is called a **skill**.
+The **Skillbook** is ACE's knowledge store — a structured collection of learned issues and insights. Each entry is called a **skill**.
 
 ## What Is a Skill?
 
-A skill is a single strategy entry with:
+A skill is a single learned entry with:
 
 | Field | Description |
 |-------|-------------|
-| `id` | Unique identifier (e.g., `math-00001`) |
-| `section` | Category grouping (e.g., `"Math Strategies"`) |
-| `content` | The strategy text |
-| `helpful` | Times this skill contributed to a correct answer |
-| `harmful` | Times this skill led to an incorrect answer |
-| `neutral` | Times cited but had no clear effect |
-| `sources` | Provenance records linking the skill back to supporting traces |
+| `id` | Unique identifier (e.g., `context-00001`) |
+| `section` | Pipeline-facing split: `context` or `harness` |
+| `keywords` | Structured topic labels (domain, subsystem, API, behavior) |
+| `issue` | The problem this skill captures |
+| `insight` | The recommended action; required for `context`, optional for `harness` |
+| `active` | Whether the skill participates in normal active views |
+| `helpful_count` / `harmful_count` / `neutral_count` | Effectiveness counters |
+| `occurrences` | Provenance records linking the skill back to supporting traces |
 
 Example skill:
 
 ```json
 {
-  "id": "math-00001",
-  "section": "Math Strategies",
-  "content": "Break complex problems into smaller steps before computing",
-  "helpful": 5,
-  "harmful": 0,
-  "neutral": 1
+  "id": "context-00001",
+  "section": "context",
+  "keywords": ["math", "decomposition"],
+  "issue": "Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.",
+  "insight": "Break the problem into smaller steps before computing.",
+  "active": true,
+  "helpful_count": 5,
+  "harmful_count": 0,
+  "neutral_count": 1
 }
 ```
 
@@ -35,46 +39,52 @@ Skills go through four stages:
 
 1. **Created** — the SkillManager adds a new skill after a reflection
 2. **Tagged** — each time the Agent cites a skill, the Reflector tags it as helpful, harmful, or neutral
-3. **Updated** — the SkillManager may refine a skill's content based on new learnings
-4. **Removed** — skills that are consistently harmful get pruned
+3. **Updated** — the SkillManager may refine a skill's issue, insight, or keywords based on new learnings
+4. **Removed** — skills are soft-removed by setting `active=False`
 
 These correspond to four [update operations](updates.md): `ADD`, `TAG`, `UPDATE`, `REMOVE`.
 
-## TOON Format
+## Prompt Format
 
-When the skillbook is included in LLM prompts, it uses **TOON** (Token-Oriented Object Notation) — a compact format that saves 16-62% tokens compared to JSON:
-
-```python
-skillbook.as_prompt()  # TOON format for LLM consumption
-```
-
-```
-skills[3]{id	section	content	helpful	harmful	neutral}:
-  math-00001	Math Strategies	Break complex problems into smaller steps	5	0	1
-  math-00002	Math Strategies	Verify answers by working backwards	3	1	0
-  logic-00001	Logic	Check edge cases before concluding	2	0	0
-```
-
-For human debugging, use the string representation:
+When the skillbook is rendered as text, it is grouped by section and shows keywords plus issue/insight:
 
 ```python
-str(skillbook)  # Markdown format for readability
+skillbook.as_prompt()  # Markdown format for LLM consumption
+```
+
+```
+## context
+- [context-00001]
+  Keywords: math, decomposition
+  Issue: Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.
+  Insight: Break the problem into smaller steps before computing.
+
+## harness
+- [harness-00001]
+  Keywords: retries, rate_limit
+  Issue: The runtime can stall for long periods when provider 429 retries fan out.
 ```
 
 ## Sections
 
-Skills are organized into sections. Sections emerge naturally from the SkillManager's categorization during learning:
+Skills are organized into exactly two sections:
+
+- `context`: learnings the agent should apply while solving the task
+- `harness`: environment or runtime learnings that affect the pipeline itself
+
+Fine-grained categorization lives in `keywords`:
 
 ```python
 from ace import Skillbook
 
 skillbook = Skillbook()
 
-# Add skills to specific sections
+# Add a context skill with explicit keywords and an action insight
 skillbook.add_skill(
-    section="Math Strategies",
-    content="Break complex problems into smaller steps",
-    metadata={"helpful": 5, "harmful": 0, "neutral": 1},
+    section="context",
+    issue="Complex arithmetic questions are easier to solve when the work is decomposed into smaller verified steps.",
+    keywords=["math", "decomposition"],
+    insight="Break complex problems into smaller steps before computing.",
 )
 ```
 
@@ -83,6 +93,7 @@ skillbook.add_skill(
 ```python
 # Save
 skillbook.save_to_file("strategies.json")
+# Writes `strategies.json` plus `strategies.embeddings.npz`
 
 # Load
 skillbook = Skillbook.load_from_file("strategies.json")
@@ -92,7 +103,7 @@ skillbook = Skillbook.load_from_file("strategies.json")
 
 ```python
 stats = skillbook.stats()
-# {"sections": 3, "skills": 15, "tags": {"helpful": 45, "harmful": 5, "neutral": 10}}
+# {"sections": 2, "skills": 15, "active_skills": 14, "by_section": {"context": 11, "harness": 3}}
 ```
 
 ## Deduplication
