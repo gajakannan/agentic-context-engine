@@ -120,3 +120,5 @@ node_modules/
 
 # Local scratch / experiment outputs
 tmp/
+
+spyfly-traces

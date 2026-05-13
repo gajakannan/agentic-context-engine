@@ -103,6 +103,15 @@ class SkillManager(RecursiveAgent):
     ) -> None:
         self._prompt_template = prompt_template
 
+        if model_settings is None:
+            from pydantic_ai.models.bedrock import BedrockModelSettings
+
+            model_settings = BedrockModelSettings(
+                bedrock_cache_instructions=True,
+                bedrock_cache_tool_definitions=True,
+                bedrock_cache_messages=True,
+            )
+
         super().__init__(
             model,
             output_type=SkillManagerReport,

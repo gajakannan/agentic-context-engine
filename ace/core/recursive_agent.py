@@ -93,6 +93,11 @@ def register_execute_code(agent: PydanticAgent[AgenticDeps, Any]) -> None:
         Variables persist across calls. Pre-loaded modules:
         ``json``, ``re``, ``collections``, ``datetime``.
 
+        Built-in helper: ``register_helper(name, source, description)``
+        defines a reusable Python function in this sandbox AND auto-injects
+        it into every child you later spawn via ``recurse`` — register
+        extraction/scoring logic once, reuse it across children.
+
         Args:
             code: Python code to execute.
 
@@ -148,18 +153,24 @@ def register_recurse(agent: PydanticAgent[AgenticDeps, Any]) -> None:
         prompt: str,
         context_code: str = "",
     ) -> str:
-        """Spawn a child session to handle a sub-problem.
+        """Spawn a child session to investigate a sub-problem in isolation.
 
-        The child gets its own sandbox (inheriting data and helpers from
-        the parent) and a fraction of the remaining token budget.
+        Use this to keep your context lean: the child works through
+        bulky data in its own context window and returns only a text
+        summary. The child inherits a copy of your sandbox variables
+        and any helpers you've registered via `register_helper`. It
+        does NOT see your conversation, so `prompt` must be self-contained.
+        Calling `recurse` multiple times in a single assistant turn
+        dispatches the children in parallel.
 
         Args:
-            prompt: Instructions for the child session.
-            context_code: Optional Python code to prepare the child's
-                sandbox before the session starts.
+            prompt: Self-contained instructions. Name the sandbox
+                variables to inspect and say what to return.
+            context_code: Optional Python run once in the child's
+                sandbox before it starts (e.g. ``chunk = traces[5:10]``).
 
         Returns:
-            Text summary of the child session's output.
+            Text summary of the child's structured output.
         """
         deps = ctx.deps
         if deps.run_session_fn is None:
@@ -282,9 +293,9 @@ class AgenticConfig:
     usage_callback: UsageCallback | None = None
 
     def build_usage_limits(self, remaining_tokens: int | None = None) -> UsageLimits:
-        """Build PydanticAI UsageLimits from this config."""
+        base = remaining_tokens or self.max_tokens
         return UsageLimits(
-            total_tokens_limit=remaining_tokens or self.max_tokens,
+            total_tokens_limit=base,
             request_limit=self.max_requests,
         )
 
@@ -329,8 +340,42 @@ class BudgetExhausted(Exception):
 # ------------------------------------------------------------------
 
 
-def is_budget_exhausted(limits: UsageLimits, usage: Any) -> bool:
-    """True if total token/request budget is spent."""
+def cost_equivalent_tokens(usage: Any) -> int:
+    """Cost-equivalent token count for budget purposes.
+
+    Anthropic Bedrock pricing (input side):
+      - fresh:        1.0x base
+      - cache_write:  1.25x base
+      - cache_read:   0.10x base
+
+    PydanticAI's Bedrock wrapper sets ``input_tokens = fresh + cache_write +
+    cache_read``. We rebuild the cost-equivalent: subtract 0.90x of cache_read
+    (since it should weigh 0.10 not 1.0) and add 0.25x of cache_write (since
+    it should weigh 1.25 not 1.0). Output is counted at 1.0x.
+    """
+    input_tokens = getattr(usage, "input_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_tokens", 0) or 0
+    cache_write = getattr(usage, "cache_write_tokens", 0) or 0
+    output = getattr(usage, "output_tokens", 0) or 0
+    cost_input = input_tokens - 0.90 * cache_read + 0.25 * cache_write
+    return int(cost_input + output)
+
+
+def is_budget_exhausted(
+    limits: UsageLimits,
+    usage: Any,
+    cost_budget: int | None = None,
+) -> bool:
+    """True if cost-equivalent or request budget is spent.
+
+    When ``cost_budget`` is provided, the *cost-equivalent* token count
+    (``cost_equivalent_tokens``) is checked against it. The gross
+    ``total_tokens_limit`` on ``limits`` is treated as a coarse outer cap and
+    is normally inflated relative to the real budget, so it should rarely
+    trip first when caching is in play.
+    """
+    if cost_budget is not None and cost_equivalent_tokens(usage) >= cost_budget:
+        return True
     if limits.total_tokens_limit and usage.total_tokens >= limits.total_tokens_limit:
         return True
     if limits.request_limit and usage.requests >= limits.request_limit:
@@ -477,7 +522,11 @@ async def run_agent_with_compaction(
                 messages = last_run.all_messages()
                 cumulative_usage = last_run.usage()
 
-                if is_budget_exhausted(usage_limits, cumulative_usage):
+                if is_budget_exhausted(
+                    usage_limits,
+                    cumulative_usage,
+                    cost_budget=config.max_tokens,
+                ):
                     raise BudgetExhausted(
                         compaction_count=compaction_count,
                         usage=cumulative_usage,
@@ -600,7 +649,13 @@ class RecursiveAgent:
         self._agent = self._create_agent(depth=0)
 
     def _create_agent(self, depth: int = 0) -> PydanticAgent[AgenticDeps, Any]:
-        """Create a PydanticAI agent for the given recursion depth."""
+        """Create a PydanticAI agent for the given recursion depth.
+
+        The root (depth 0) uses the configured ``output_type`` (typically
+        a structured Pydantic model). Children return free-form text:
+        they exist to investigate one sub-problem and report a focused
+        answer, not to produce a full reflection.
+        """
         if isinstance(self._model, PydanticModel):
             resolved = self._model
         else:
@@ -609,9 +664,11 @@ class RecursiveAgent:
         if self.config.usage_callback is not None:
             resolved = MeteredModel(resolved, self.config.usage_callback)
 
+        output_type = self._output_type if depth == 0 else str
+
         agent: PydanticAgent[AgenticDeps, Any] = PydanticAgent(
             resolved,
-            output_type=self._output_type,
+            output_type=output_type,
             system_prompt=self._system_prompt,
             retries=3,
             model_settings=self._model_settings,
