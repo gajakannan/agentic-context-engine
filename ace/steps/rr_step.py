@@ -80,7 +80,18 @@ class RRStep(RecursiveAgent):
         model_settings: ModelSettings | None = None,
     ) -> None:
         self.prompt_template = prompt_template
-        effective_model_settings = model_settings or ModelSettings(temperature=0.0)
+        effective_model_settings: ModelSettings
+        if model_settings is None:
+            from pydantic_ai.models.bedrock import BedrockModelSettings
+
+            effective_model_settings = BedrockModelSettings(
+                temperature=0.0,
+                bedrock_cache_instructions=True,
+                bedrock_cache_tool_definitions=True,
+                bedrock_cache_messages=True,
+            )
+        else:
+            effective_model_settings = model_settings
 
         super().__init__(
             model,

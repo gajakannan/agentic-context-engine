@@ -517,6 +517,7 @@ Skills rendered into the agent's prompt this run (tagging scope):
 </task_context>
 
 <workflow>
+0. Check `stats.skills` above. If it's 0, skip every `search_skills` / `read_skill` call — there is nothing to find.
 1. Read the reflection. Identify concrete patterns with evidence.
 2. Tag only the skills the reflection provides direct evidence for — that is, \
 skills the reflection actually implicates (cites, contradicts, builds on, or \

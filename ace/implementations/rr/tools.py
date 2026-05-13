@@ -58,8 +58,7 @@ def register_output_validator(agent: "PydanticAgent[RRDeps, Any]") -> None:
         if ctx.deps.iteration < 1:
             raise ModelRetry(
                 "You haven't explored the data enough. "
-                "Use execute_code first, "
-                "then provide your final ReflectorOutput."
+                "Use execute_code first, then provide your final answer."
             )
         return output
 
