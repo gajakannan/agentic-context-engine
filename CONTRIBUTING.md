@@ -3,7 +3,7 @@
 ## Contributor Terms
 
 (a) The contribution is your original work and you have the right to submit it.
-(b) You license your contribution under the project's current license (MIT).
+(b) You license your contribution under the project's current license (Apache-2.0).
 (c) You grant the maintainers the right to relicense your contribution as part of the project under any future open-source or commercial license.
 
 ---
