@@ -9,8 +9,7 @@
 [![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://kayba-ai.github.io/agentic-context-engine/latest/)
 
 > [!TIP]
-> ### Want this fully managed? [Kayba](https://kayba.ai) automates the loop: it connects to your error sources, investigates agent failures from traces, and ships fixes as pull requests, with impact tracking after deploy.
-> [![Kayba](https://img.shields.io/badge/Kayba-Get_a_Demo-4A6B80?style=for-the-badge)](https://kayba.ai)
+> ACE is the open-source engine behind [Kayba](https://kayba.ai). If you'd rather have the whole loop managed for you, from failure investigation to fixes shipped as PRs, [get a demo](https://kayba.ai).
 
 ---
 
